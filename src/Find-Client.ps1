@@ -26,27 +26,36 @@ function Get-NormalisedDob {
 
     if ([string]::IsNullOrWhiteSpace($Raw)) { return $null }
     $digits = ($Raw -replace '[^\d]', '')
+    if ($digits.Length -ne 8) { return $null }
 
-    if ($digits.Length -eq 8) {
-        # Accept DDMMYYYY as-is.
-        $dd = [int]$digits.Substring(0,2)
-        $mm = [int]$digits.Substring(2,2)
-        $yyyy = [int]$digits.Substring(4,4)
+    # Try DDMMYYYY first (AU convention). If that doesn't parse as a real
+    # date, try YYYYMMDD as a fallback — we never guess from the leading
+    # two characters alone (that breaks real DOBs with day 19 or 20).
+    $try1_dd = [int]$digits.Substring(0,2)
+    $try1_mm = [int]$digits.Substring(2,2)
+    $try1_yy = [int]$digits.Substring(4,4)
+
+    $try2_yy = [int]$digits.Substring(0,4)
+    $try2_mm = [int]$digits.Substring(4,2)
+    $try2_dd = [int]$digits.Substring(6,2)
+
+    function Test-DateParts {
+        param([int]$Dd, [int]$Mm, [int]$Yy)
+        if ($Mm -lt 1 -or $Mm -gt 12) { return $false }
+        if ($Dd -lt 1 -or $Dd -gt 31) { return $false }
+        if ($Yy -lt 1900 -or $Yy -gt 2100) { return $false }
+        try { [void][datetime]::new($Yy, $Mm, $Dd); return $true } catch { return $false }
     }
-    elseif ($digits.Length -eq 8 -and $digits.Substring(0,2) -in @('19','20')) {
-        # Looks like YYYYMMDD — convert.
-        $yyyy = [int]$digits.Substring(0,4)
-        $mm   = [int]$digits.Substring(4,2)
-        $dd   = [int]$digits.Substring(6,2)
+
+    if (Test-DateParts $try1_dd $try1_mm $try1_yy) {
+        $dd = $try1_dd; $mm = $try1_mm; $yyyy = $try1_yy
+    }
+    elseif (Test-DateParts $try2_dd $try2_mm $try2_yy) {
+        $dd = $try2_dd; $mm = $try2_mm; $yyyy = $try2_yy
     }
     else {
         return $null
     }
-
-    if ($mm -lt 1 -or $mm -gt 12) { return $null }
-    if ($dd -lt 1 -or $dd -gt 31) { return $null }
-    if ($yyyy -lt 1900 -or $yyyy -gt 2100) { return $null }
-    try { [void][datetime]::new($yyyy, $mm, $dd) } catch { return $null }
 
     return ('{0:00}{1:00}{2:0000}' -f $dd, $mm, $yyyy)
 }

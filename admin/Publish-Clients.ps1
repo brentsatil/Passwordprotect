@@ -58,13 +58,22 @@ function Normalise-Dob {
     if (-not $raw) { return $null }
     $s = "$raw" -replace '[^\d]', ''
     if ($s.Length -ne 8) { return $null }
-    # Interpret as DDMMYYYY unless the leading two look like a year.
-    if ($s.Substring(0,2) -in @('19','20')) {
-        $yyyy = [int]$s.Substring(0,4); $mm = [int]$s.Substring(4,2); $dd = [int]$s.Substring(6,2)
-    } else {
-        $dd = [int]$s.Substring(0,2); $mm = [int]$s.Substring(2,2); $yyyy = [int]$s.Substring(4,4)
+
+    # Try DDMMYYYY first (AU convention); if that fails to parse as a real
+    # date, try YYYYMMDD. Never dispatch on leading two characters alone —
+    # that misclassifies valid DOBs with day 19 or 20.
+    $validate = {
+        param($d,$m,$y)
+        if ($m -lt 1 -or $m -gt 12) { return $false }
+        if ($d -lt 1 -or $d -gt 31) { return $false }
+        if ($y -lt 1900 -or $y -gt 2100) { return $false }
+        try { [void][datetime]::new($y,$m,$d); return $true } catch { return $false }
     }
-    try { [void][datetime]::new($yyyy, $mm, $dd) } catch { return $null }
+    $d1 = [int]$s.Substring(0,2); $m1 = [int]$s.Substring(2,2); $y1 = [int]$s.Substring(4,4)
+    $y2 = [int]$s.Substring(0,4); $m2 = [int]$s.Substring(4,2); $d2 = [int]$s.Substring(6,2)
+    if (& $validate $d1 $m1 $y1)       { $dd=$d1; $mm=$m1; $yyyy=$y1 }
+    elseif (& $validate $d2 $m2 $y2)   { $dd=$d2; $mm=$m2; $yyyy=$y2 }
+    else { return $null }
     return ('{0:00}{1:00}{2:0000}' -f $dd,$mm,$yyyy)
 }
 

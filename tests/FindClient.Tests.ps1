@@ -20,8 +20,14 @@ Describe 'Get-NormalisedDob' {
     It 'accepts already-canonical DDMMYYYY' {
         (Get-NormalisedDob '12031970') | Should -Be '12031970'
     }
-    It 'converts YYYYMMDD to DDMMYYYY' {
+    It 'converts YYYYMMDD to DDMMYYYY when DDMMYYYY is invalid' {
         (Get-NormalisedDob '19700312') | Should -Be '12031970'
+    }
+    It 'prefers DDMMYYYY over YYYYMMDD when both interpretations are possible' {
+        # 19081990 is a valid DDMMYYYY (19 Aug 1990). As YYYYMMDD it would
+        # be 1908-19-90 which is nonsense. Must resolve to DDMMYYYY.
+        (Get-NormalisedDob '19081990') | Should -Be '19081990'
+        (Get-NormalisedDob '20051985') | Should -Be '20051985'
     }
     It 'rejects impossible dates' {
         (Get-NormalisedDob '32011970') | Should -BeNullOrEmpty
