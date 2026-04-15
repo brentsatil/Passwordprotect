@@ -1,0 +1,14 @@
+# SHA-256 pins for bundled dependencies.
+# Replace these placeholders with the actual hashes of the signed binaries
+# that ship with this release. Install will refuse to proceed if the file
+# hashes on disk do not match.
+#
+# Format (sha256sum-compatible):  <hex> *<filename>
+#
+# Populate via (on the build machine, after dropping the signed binaries in
+# bin\):
+#   Get-FileHash -Algorithm SHA256 bin\qpdf.exe
+#   Get-FileHash -Algorithm SHA256 bin\7z.exe
+
+0000000000000000000000000000000000000000000000000000000000000000 *qpdf.exe
+0000000000000000000000000000000000000000000000000000000000000000 *7z.exe

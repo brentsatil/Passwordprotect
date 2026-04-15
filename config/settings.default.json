@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "company_name": "Curo Financial Services",
+  "tool_version_pin": "1.0.0",
+
+  "default_password_format": "DDMMYYYY",
+  "dob_password_digits": 8,
+
+  "output_suffix": "_protected",
+  "allow_overwrite": false,
+  "delete_original_default": false,
+
+  "manual_password_min_length": 10,
+  "manual_password_required_classes": 3,
+
+  "encryption_algorithm": "AES-256",
+  "long_path_prefix": true,
+
+  "client_lookup_file": "\\\\server\\shared\\PDFProtect\\clients.csv",
+  "client_lookup_cache_path": "%ProgramData%\\CuroPDFProtect\\cache\\clients.csv",
+  "client_lookup_cache_hours": 48,
+  "client_lookup_warn_days": 8,
+  "client_lookup_fail_days": 21,
+
+  "escrow_enabled": true,
+  "escrow_required": true,
+  "escrow_dir": "\\\\server\\data\\PDFProtect-Escrow",
+  "escrow_pubkey_path": "%ProgramData%\\CuroPDFProtect\\escrow.pub",
+  "escrow_retry_seconds": 120,
+
+  "audit_log_path": "%ProgramData%\\CuroPDFProtect\\audit.log",
+  "audit_log_retention_days": 2555,
+
+  "show_success_dialog": true,
+  "show_recipient_hint": true,
+  "recipient_hint_text": "This document is password protected. Your password is your date of birth in DDMMYYYY format (e.g. 12031970).",
+
+  "outlook_integration": true,
+  "outlook_com_timeout_seconds": 5,
+  "outlook_fallback_desktop_drop": true,
+
+  "install_dir": "C:\\Program Files\\CuroPDFProtect",
+  "qpdf_path": "C:\\Program Files\\CuroPDFProtect\\bin\\qpdf.exe",
+  "sevenzip_path": "C:\\Program Files\\CuroPDFProtect\\bin\\7z.exe"
+}

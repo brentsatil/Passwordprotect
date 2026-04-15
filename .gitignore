@@ -1,0 +1,12 @@
+# Binary deps are provided at release-build time; not checked in.
+bin/qpdf.exe
+bin/7z.exe
+
+# Local build / test artefacts
+*.tmp
+*.bak
+tests/fixtures/out/
+*.escrow.json
+
+# PowerShell module caches
+*.psd1.bak
