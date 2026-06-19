@@ -1,6 +1,5 @@
-# Binary deps are provided at release-build time; not checked in.
-bin/qpdf.exe
-bin/7z.exe
+# Binary deps (qpdf.exe + DLLs, 7z.exe) are bundled in bin/ so the
+# standalone PasswordProtect tool works out of the box. Pinned in bin/HASHES.txt.
 
 # Local build / test artefacts
 *.tmp

@@ -7,6 +7,27 @@ matching Outlook shortcut protects-and-attaches in one step.
 
 Password recovery is guaranteed via RSA key escrow. No password is ever logged.
 
+## Simple drag-and-drop tool (no install needed)
+
+If you just want the personal version — open it, drag a file in, type a date of
+birth — use **`PasswordProtect.cmd`**. No GPO, escrow, client CSV, Outlook, or
+audit log; just the encryption.
+
+1. Double-click `PasswordProtect.cmd` → a window appears. Drag one or more
+   PDFs/documents onto it. (You can also drag files straight onto the `.cmd`
+   icon to skip the window.)
+2. A popup asks for a **date of birth**. Enter day / month / year; that becomes
+   the password as `DDMMYYYY` (e.g. 12 Mar 1970 → `12031970`). One date applies
+   to every file in the drop.
+3. A protected copy lands **in the same folder** as each original (the original
+   is kept):
+   - **PDF** → `name_protected.pdf`, opens in any viewer with the password.
+   - **Anything else** → `name_protected.7z`, an AES-256 archive you open with
+     7-Zip using the password.
+
+`qpdf.exe` and `7z.exe` are bundled in `bin\`, so it works on any Windows 10/11
+machine with no setup. Requires PowerShell 5.1 (built into Windows).
+
 ## Quick reference
 
 | Task | Where |
