@@ -28,6 +28,22 @@ audit log; just the encryption.
 `qpdf.exe` and `7z.exe` are bundled in `bin\`, so it works on any Windows 10/11
 machine with no setup. Requires PowerShell 5.1 (built into Windows).
 
+### If the window closes instantly / "crashes"
+
+The launcher no longer disappears silently on failure:
+
+- Any unexpected error is shown in a dialog **and** written to
+  `PasswordProtect-error.log` (next to `PasswordProtect.cmd`). Send that file to
+  whoever set this up.
+- The console window now **stays open** (waits for a key) whenever the tool
+  exits with an error, so you can read the message.
+- Most common cause in managed environments: a red *"running scripts is disabled
+  on this system"* message — that's a Group Policy blocking PowerShell scripts,
+  which needs IT to allow the scripts (or to sign them); it can't be fixed from
+  the tool itself.
+- Keep the whole folder together — `PasswordProtect.cmd` needs `src\` and `bin\`
+  beside it. The tool checks this on startup and names any missing file.
+
 ## Quick reference
 
 | Task | Where |

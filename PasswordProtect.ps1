@@ -28,12 +28,16 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$script:Here = Split-Path -Parent $MyInvocation.MyCommand.Definition
-
-# --- Engine (reused, dot-sourced) -------------------------------------------
+# $PSScriptRoot is populated both when this file is run with -File and when it
+# is dot-sourced by the tests, so it is the most reliable anchor for the
+# sibling src\ and bin\ folders.
+$script:Here   = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Definition }
 $script:SrcDir = Join-Path $script:Here 'src'
-. (Join-Path $script:SrcDir 'Invoke-QPdf.ps1')
-. (Join-Path $script:SrcDir 'Invoke-SevenZip.ps1')
+
+# The encryption engine (Invoke-QPdf.ps1 / Invoke-SevenZip.ps1) and the WPF
+# assemblies are loaded inside Invoke-Main rather than here, so that any
+# failure to load them is caught by the entry-point handler and reported to
+# the user instead of silently closing the window.
 
 # ---------------------------------------------------------------------------
 # Pure helpers (no WPF, no binaries) — kept testable.
@@ -194,7 +198,28 @@ function Invoke-Main {
     [CmdletBinding()]
     param([string[]] $InputFiles)
 
+    # WPF dialogs need these assemblies and an STA thread. Loading here (inside
+    # the entry-point try/catch) means a missing/blocked WPF stack is reported.
     Add-Type -AssemblyName PresentationFramework
+    Add-Type -AssemblyName PresentationCore
+    Add-Type -AssemblyName WindowsBase
+    if ([System.Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') {
+        throw ("PowerShell is not running in STA mode, which the dialogs require. " +
+               "Start the tool with PasswordProtect.cmd (it passes -STA).")
+    }
+
+    # Preflight: the tool only works with its helper scripts and engine intact.
+    foreach ($req in 'Invoke-QPdf.ps1','Invoke-SevenZip.ps1','Prompt-Drop.ps1','Prompt-Dob.ps1') {
+        $rp = Join-Path $script:SrcDir $req
+        if (-not (Test-Path -LiteralPath $rp)) {
+            throw ("Missing required file:`n  $rp`n`nThe program folder looks incomplete. " +
+                   "Re-copy the whole PasswordProtect folder, keeping src\ and bin\ next to PasswordProtect.cmd.")
+        }
+    }
+
+    # Engine (reused). Dot-sourced here so a load failure is reported, not fatal.
+    . (Join-Path $script:SrcDir 'Invoke-QPdf.ps1')
+    . (Join-Path $script:SrcDir 'Invoke-SevenZip.ps1')
 
     # 1. Resolve binaries up front; clear error if missing.
     try {
@@ -238,10 +263,76 @@ function Invoke-Main {
     $icon = if ($bad.Count -and -not $ok.Count) { 'Error' } elseif ($bad.Count) { 'Warning' } else { 'Information' }
     [System.Windows.MessageBox]::Show(($lines -join "`n"), 'Password Protect', 'OK', $icon) | Out-Null
 
-    return $(if ($bad.Count -and -not $ok.Count) { 1 } else { 0 })
+    # The summary dialog has already told the user about any skipped files, so
+    # this is a successful *run*. Non-zero exits are reserved for genuine
+    # crashes (handled by the entry point) so the launcher only pauses then.
+    return 0
 }
 
-# Only run when executed directly (not when dot-sourced by tests).
+function Write-CrashLog {
+    <#
+    .SYNOPSIS
+        Append a full diagnostic record for an unhandled error so a failure is
+        never invisible. Never records the password (it lives only in a
+        SecureString and is never written here).
+    #>
+    param(
+        [Parameter(Mandatory)] [System.Management.Automation.ErrorRecord] $ErrorRecord,
+        [Parameter(Mandatory)] [string] $LogPath
+    )
+    $apartment = try { [System.Threading.Thread]::CurrentThread.GetApartmentState() } catch { 'unknown' }
+    $body = @(
+        "==== PasswordProtect crash $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ===="
+        "PowerShell : $($PSVersionTable.PSVersion)   Apartment: $apartment"
+        "OS         : $([Environment]::OSVersion.VersionString)"
+        "Message    : $($ErrorRecord.Exception.Message)"
+        "Type       : $($ErrorRecord.Exception.GetType().FullName)"
+        "Where      : $($ErrorRecord.InvocationInfo.ScriptName):$($ErrorRecord.InvocationInfo.ScriptLineNumber)"
+        "Command    : $($ErrorRecord.InvocationInfo.Line.Trim())"
+        "StackTrace :"
+        $ErrorRecord.ScriptStackTrace
+        ''
+        $ErrorRecord.Exception.ToString()
+        ''
+    ) -join [Environment]::NewLine
+    try { Add-Content -LiteralPath $LogPath -Value $body -Encoding UTF8 } catch { }
+}
+
+# ---------------------------------------------------------------------------
+# Entry point. Runs only when executed directly; the guard skips it when this
+# file is dot-sourced (e.g. by the Pester tests). ANY unexpected failure is
+# written to PasswordProtect-error.log AND shown in a dialog, so the window
+# never just vanishes with no explanation.
+# ---------------------------------------------------------------------------
 if ($MyInvocation.InvocationName -ne '.') {
-    exit (Invoke-Main -InputFiles $Files)
+    $script:LogPath = Join-Path $script:Here 'PasswordProtect-error.log'
+    $exitCode = 0
+    try {
+        $exitCode = Invoke-Main -InputFiles $Files
+    } catch {
+        $exitCode = 99
+        Write-CrashLog -ErrorRecord $_ -LogPath $script:LogPath
+        $message = @(
+            "Password Protect ran into a problem and couldn't finish:"
+            ''
+            $_.Exception.Message
+            ''
+            'A full report was saved next to the program at:'
+            $script:LogPath
+            ''
+            'Please send that file to whoever set this up.'
+        ) -join [Environment]::NewLine
+        $shown = $false
+        try {
+            Add-Type -AssemblyName PresentationFramework -ErrorAction Stop
+            [System.Windows.MessageBox]::Show($message, 'Password Protect - error', 'OK', 'Error') | Out-Null
+            $shown = $true
+        } catch { }
+        if (-not $shown) {
+            Write-Host ''
+            Write-Host $message -ForegroundColor Red
+            Write-Host ''
+        }
+    }
+    exit $exitCode
 }
