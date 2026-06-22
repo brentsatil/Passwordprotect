@@ -131,7 +131,11 @@ function Protect-Pdf {
         [GC]::Collect()
     }
 
-    if ($code -ne 0) {
+    # qpdf exit codes: 0 = clean, 3 = warnings (output WAS still produced),
+    # 2 = errors. Treat warnings as success -- plenty of real-world PDFs are
+    # slightly non-conforming and make qpdf warn, yet still encrypt correctly.
+    # Only a genuine error (or a missing temp output) is a failure.
+    if (($code -ne 0 -and $code -ne 3) -or -not (Test-Path -LiteralPath $tmpOut)) {
         Remove-Item -LiteralPath $tmpOut -ErrorAction SilentlyContinue
         return [pscustomobject]@{ Success=$false; ErrorCode='QPDF_FAIL'; OutputPath=$null; Stderr=$stderr }
     }
