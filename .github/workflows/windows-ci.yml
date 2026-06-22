@@ -85,7 +85,11 @@ jobs:
 
       - name: Smoke-test bundled binaries (real encryption round-trips)
         run: |
-          $ErrorActionPreference = 'Stop'
+          # 'Continue' (not 'Stop') so that a native tool writing to stderr -- which
+          # 7z/qpdf do on the INTENTIONAL wrong-password checks below -- is not
+          # escalated into a NativeCommandError. Every assertion still fails the
+          # step explicitly via `throw` on a bad $LASTEXITCODE / result.
+          $ErrorActionPreference = 'Continue'
           . .\src\Invoke-QPdf.ps1
           . .\src\Invoke-SevenZip.ps1
 
