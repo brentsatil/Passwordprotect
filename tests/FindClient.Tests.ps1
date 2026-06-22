@@ -1,6 +1,6 @@
 #Requires -Modules Pester
 <#
-  Unit tests for Find-Client.ps1 — DOB normalisation and CSV robustness.
+  Unit tests for Find-Client.ps1 - DOB normalisation and CSV robustness.
   Run: Invoke-Pester -Path .\tests
 #>
 
@@ -57,9 +57,9 @@ Describe 'Find-Client picker matches' {
             Source='test'; SourceKind='primary'; AgeDays=0; Stale=$false; HardFail=$false;
             MalformedRows=0; Warning=$null;
             Clients = @(
-                [pscustomobject]@{ Name='Smith, John';   Dob='12031970'; FileRef='C-00101'; Display='Smith, John  —  C-00101' }
-                [pscustomobject]@{ Name='Smith, John';   Dob='22061985'; FileRef='C-00421'; Display='Smith, John  —  C-00421' }
-                [pscustomobject]@{ Name="O'Brien, Mary"; Dob='01011990'; FileRef='C-00502'; Display="O'Brien, Mary  —  C-00502" }
+                [pscustomobject]@{ Name='Smith, John';   Dob='12031970'; FileRef='C-00101'; Display='Smith, John  -  C-00101' }
+                [pscustomobject]@{ Name='Smith, John';   Dob='22061985'; FileRef='C-00421'; Display='Smith, John  -  C-00421' }
+                [pscustomobject]@{ Name="O'Brien, Mary"; Dob='01011990'; FileRef='C-00502'; Display="O'Brien, Mary  -  C-00502" }
             )
         }
     }

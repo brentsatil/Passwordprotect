@@ -5,6 +5,31 @@
     the -spf + -p- "prompt on stdin" mechanism, never placed on argv.
 #>
 
+function ConvertTo-NativeArgString {
+    # Quote one argument for a Windows CreateProcess command line (per the
+    # CommandLineToArgvW rules). Needed because Windows PowerShell 5.1 / .NET
+    # Framework has no ProcessStartInfo.ArgumentList, so we assign .Arguments.
+    param([string] $Arg)
+    if ($null -eq $Arg) { return '""' }
+    if ($Arg.Length -gt 0 -and $Arg -notmatch '[ \t\n\v"]') { return $Arg }
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.Append('"')
+    $bs = 0
+    foreach ($ch in $Arg.ToCharArray()) {
+        if ($ch -eq '\') {
+            $bs++
+        } elseif ($ch -eq '"') {
+            [void]$sb.Append('\', ($bs * 2 + 1)); [void]$sb.Append('"'); $bs = 0
+        } else {
+            if ($bs -gt 0) { [void]$sb.Append('\', $bs); $bs = 0 }
+            [void]$sb.Append($ch)
+        }
+    }
+    if ($bs -gt 0) { [void]$sb.Append('\', ($bs * 2)) }
+    [void]$sb.Append('"')
+    return $sb.ToString()
+}
+
 function Protect-WithSevenZip {
     [CmdletBinding()]
     param(
@@ -33,7 +58,7 @@ function Protect-WithSevenZip {
 
     # 7z accepts the password on argv (-p<pw>). Prefer -spf (store full paths)
     # off and use -p without inline password by piping via -ssw and stdin in
-    # newer 7z — but 7z 22+ does not read password from stdin. We therefore
+    # newer 7z - but 7z 22+ does not read password from stdin. We therefore
     # use -p<pw> with a just-in-time argv that we never log.
     $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($Password)
     try {
@@ -41,9 +66,8 @@ function Protect-WithSevenZip {
 
         $pinfo = New-Object System.Diagnostics.ProcessStartInfo
         $pinfo.FileName = $SevenZipPath
-        foreach ($a in @('a','-t7z','-mhe=on','-mx=5','-y',"-p$plain",$tmpOut,$InputPath)) {
-            [void]$pinfo.ArgumentList.Add($a)
-        }
+        $pinfo.Arguments = (@('a','-t7z','-mhe=on','-mx=5','-y',"-p$plain",$tmpOut,$InputPath) |
+            ForEach-Object { ConvertTo-NativeArgString $_ }) -join ' '
         $pinfo.UseShellExecute = $false
         $pinfo.RedirectStandardError = $true
         $pinfo.RedirectStandardOutput = $true

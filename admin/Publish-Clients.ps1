@@ -17,7 +17,7 @@
       5. Atomically replaces the live clients.csv on the share (Move-Item -Force).
       6. Emits a report: rows in, rows out, rows skipped, and why.
 
-    Hard-fails if any validation step fails — the live CSV is NEVER overwritten
+    Hard-fails if any validation step fails - the live CSV is NEVER overwritten
     with something unvalidated.
 
 .EXAMPLE
@@ -96,11 +96,11 @@ Write-Host ("Rows skipped: {0}" -f $skipped.Count)
 if ($skipped.Count -gt 0 -and $skipped.Count -le 20) {
     $skipped | ForEach-Object { Write-Host ("  [{0}] {1}" -f $_.reason, ($_.row | ConvertTo-Json -Compress)) }
 } elseif ($skipped.Count -gt 20) {
-    Write-Host "  (too many to display — first 20 above)"
+    Write-Host "  (too many to display - first 20 above)"
 }
 
-if ($good.Count -eq 0) { throw "No valid rows — refusing to publish." }
-if ($skipped.Count -gt ($rows.Count / 2)) { throw "More than half the rows were invalid — refusing to publish." }
+if ($good.Count -eq 0) { throw "No valid rows - refusing to publish." }
+if ($skipped.Count -gt ($rows.Count / 2)) { throw "More than half the rows were invalid - refusing to publish." }
 
 if ($DryRun) {
     Write-Host "Dry run: not writing to '$Destination'." -ForegroundColor Yellow

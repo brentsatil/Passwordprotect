@@ -6,7 +6,7 @@
     Three numeric fields (Day / Month / Year) map exactly to a DDMMYYYY
     password with no locale ambiguity. A live read-back label shows the
     resulting password so the user can eyeball it before committing. The
-    password is built straight into a SecureString — no long-lived plain copy.
+    password is built straight into a SecureString - no long-lived plain copy.
 .OUTPUTS
     @{ SecurePassword = <SecureString or $null>; Cancelled = [bool] }
     The caller disposes the SecureString.

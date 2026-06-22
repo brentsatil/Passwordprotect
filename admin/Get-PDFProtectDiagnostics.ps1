@@ -23,7 +23,7 @@ Import-Module (Join-Path $root 'src\Logging.psm1') -Force
 
 $report = @()
 $report += "=========================================================="
-$report += "Curo PDF Protector — Diagnostics"
+$report += "Curo PDF Protector - Diagnostics"
 $report += "Generated: $((Get-Date).ToString('o'))"
 $report += "Host:      $env:COMPUTERNAME"
 $report += "User:      $env:USERDOMAIN\$env:USERNAME"
@@ -36,7 +36,7 @@ try {
     $report += "Tool version pin:   $($config.tool_version_pin)"
     $report += "Install dir:        $($config.install_dir)"
 } catch {
-    $report += "Config load:        FAIL — $($_.Exception.Message)"
+    $report += "Config load:        FAIL - $($_.Exception.Message)"
     $report -join "`n" | Write-Output
     return
 }
@@ -101,7 +101,7 @@ if (Test-Path -LiteralPath $auditPath) {
     $report += "Last 5 audit events (password fields redacted):"
     $tail = Get-Content -LiteralPath $auditPath -Tail 5
     foreach ($line in $tail) {
-        # Defensive redaction — any key containing 'password' or 'pw'.
+        # Defensive redaction - any key containing 'password' or 'pw'.
         $report += "  $($line -replace '("(?:[^"]*(?:password|pw|secret)[^"]*)")\s*:\s*"[^"]*"', '$1:"[REDACTED]"')"
     }
 } else {

@@ -44,7 +44,7 @@ function Append-JsonLine {
         [Parameter(Mandatory)] [string] $Path,
         [Parameter(Mandatory)] $Entry
     )
-    $dir = Split-Path -LiteralPath $Path -Parent
+    $dir = [IO.Path]::GetDirectoryName($Path)   # -LiteralPath can't take -Parent in PS 5.1
     if (-not (Test-Path -LiteralPath $dir)) {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }

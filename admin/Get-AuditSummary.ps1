@@ -29,7 +29,7 @@ $events = Get-Content -LiteralPath $AuditPath |
 
 if (-not $events) { Write-Host "No events in the last $Days days."; return }
 
-Write-Host "=== Curo PDF Protector — last $Days days ===" -ForegroundColor Cyan
+Write-Host "=== Curo PDF Protector - last $Days days ===" -ForegroundColor Cyan
 Write-Host ("Events:            {0}" -f $events.Count)
 Write-Host ""
 

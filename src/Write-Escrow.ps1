@@ -10,7 +10,7 @@
     tool version, host, user, timestamp).
 
     Hard-fails if the escrow directory is unreachable. The tool's overall
-    operation will be aborted upstream — we never produce a protected file
+    operation will be aborted upstream - we never produce a protected file
     without a recoverable sidecar.
 #>
 
@@ -118,7 +118,7 @@ function Write-EscrowSidecar {
         [System.IO.File]::WriteAllText($tmp, $json, [System.Text.UTF8Encoding]::new($false))
         Move-Item -LiteralPath $tmp -Destination $sidecarPath -Force
 
-        # Verification read-back — confirms the write actually landed on the
+        # Verification read-back - confirms the write actually landed on the
         # share before we return success.
         if (-not (Test-Path -LiteralPath $sidecarPath)) {
             throw "Escrow sidecar did not persist after write."

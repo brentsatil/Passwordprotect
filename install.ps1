@@ -11,7 +11,7 @@
         -Silent
 
     Actions:
-      1. Compare version.txt on deploy share vs local install — skip if current.
+      1. Compare version.txt on deploy share vs local install - skip if current.
       2. Copy src\, admin\, bin\, config\ into C:\Program Files\CuroPDFProtect\.
       3. Verify SHA-256 of bundled qpdf.exe and 7z.exe against pinned hashes.
       4. Write C:\ProgramData\CuroPDFProtect\settings.json (from network config
@@ -79,7 +79,7 @@ if (Test-Path $hashesPath) {
         Write-Log "SHA-256 OK: $bin"
     }
 } else {
-    Write-Warning "HASHES.txt not present on deploy share — binaries unverified."
+    Write-Warning "HASHES.txt not present on deploy share - binaries unverified."
 }
 
 # --- Place settings.json -----------------------------------------------------
@@ -101,7 +101,7 @@ if (Test-Path $pubSrc) {
     Copy-Item -LiteralPath $pubSrc -Destination $pubDst -Force
     Write-Log "escrow.pub deployed"
 } else {
-    Write-Warning "No escrow.pub on deploy share — Rotate-EscrowKey.ps1 has not been run."
+    Write-Warning "No escrow.pub on deploy share - Rotate-EscrowKey.ps1 has not been run."
 }
 
 # --- ACL ProgramData ---------------------------------------------------------

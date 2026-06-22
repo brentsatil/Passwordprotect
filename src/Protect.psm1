@@ -40,7 +40,7 @@ function Invoke-ProtectFileCore {
 
     $ext        = [IO.Path]::GetExtension($Path).ToLowerInvariant()
     $isPdf      = $ext -eq '.pdf'
-    $targetDir  = Split-Path -LiteralPath $Path -Parent
+    $targetDir  = [IO.Path]::GetDirectoryName($Path)   # -LiteralPath can't take -Parent in PS 5.1
     $stem       = [IO.Path]::GetFileNameWithoutExtension($Path)
     $suffix     = $Config.output_suffix
     $outputName = if ($isPdf) { "$stem$suffix$ext" } else { "$stem$suffix.7z" }

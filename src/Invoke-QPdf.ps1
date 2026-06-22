@@ -11,14 +11,41 @@
     SecureString it passed in.
 #>
 
+function ConvertTo-NativeArgString {
+    # Quote one argument for a Windows CreateProcess command line (per the
+    # CommandLineToArgvW rules). Needed because Windows PowerShell 5.1 / .NET
+    # Framework has no ProcessStartInfo.ArgumentList, so we assign .Arguments.
+    param([string] $Arg)
+    if ($null -eq $Arg) { return '""' }
+    if ($Arg.Length -gt 0 -and $Arg -notmatch '[ \t\n\v"]') { return $Arg }
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.Append('"')
+    $bs = 0
+    foreach ($ch in $Arg.ToCharArray()) {
+        if ($ch -eq '\') {
+            $bs++
+        } elseif ($ch -eq '"') {
+            [void]$sb.Append('\', ($bs * 2 + 1)); [void]$sb.Append('"'); $bs = 0
+        } else {
+            if ($bs -gt 0) { [void]$sb.Append('\', $bs); $bs = 0 }
+            [void]$sb.Append($ch)
+        }
+    }
+    if ($bs -gt 0) { [void]$sb.Append('\', ($bs * 2)) }
+    [void]$sb.Append('"')
+    return $sb.ToString()
+}
+
 function Test-PdfPreEncrypted {
     param(
         [Parameter(Mandatory)] [string] $QpdfPath,
         [Parameter(Mandatory)] [string] $InputPath
     )
     # qpdf --is-encrypted exits 0 if encrypted, 2 if not, 3 on error.
-    $p = Start-Process -FilePath $QpdfPath -ArgumentList @('--is-encrypted','--',$InputPath) `
-         -NoNewWindow -Wait -PassThru -RedirectStandardError $env:TEMP\qpdf-enc.err
+    # Pass a single pre-quoted argument string so paths with spaces survive.
+    $argStr = (@('--is-encrypted','--',$InputPath) | ForEach-Object { ConvertTo-NativeArgString $_ }) -join ' '
+    $p = Start-Process -FilePath $QpdfPath -ArgumentList $argStr `
+         -NoNewWindow -Wait -PassThru -RedirectStandardError "$env:TEMP\qpdf-enc.err"
     return $p.ExitCode -eq 0
 }
 
@@ -88,7 +115,7 @@ function Protect-Pdf {
         )
         $pinfo = New-Object System.Diagnostics.ProcessStartInfo
         $pinfo.FileName = $QpdfPath
-        foreach ($a in $args) { [void]$pinfo.ArgumentList.Add($a) }
+        $pinfo.Arguments = (@($args | ForEach-Object { ConvertTo-NativeArgString $_ })) -join ' '
         $pinfo.UseShellExecute = $false
         $pinfo.RedirectStandardError = $true
         $pinfo.RedirectStandardOutput = $true
@@ -104,7 +131,11 @@ function Protect-Pdf {
         [GC]::Collect()
     }
 
-    if ($code -ne 0) {
+    # qpdf exit codes: 0 = clean, 3 = warnings (output WAS still produced),
+    # 2 = errors. Treat warnings as success -- plenty of real-world PDFs are
+    # slightly non-conforming and make qpdf warn, yet still encrypt correctly.
+    # Only a genuine error (or a missing temp output) is a failure.
+    if (($code -ne 0 -and $code -ne 3) -or -not (Test-Path -LiteralPath $tmpOut)) {
         Remove-Item -LiteralPath $tmpOut -ErrorAction SilentlyContinue
         return [pscustomobject]@{ Success=$false; ErrorCode='QPDF_FAIL'; OutputPath=$null; Stderr=$stderr }
     }
