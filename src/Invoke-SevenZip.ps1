@@ -33,7 +33,7 @@ function Protect-WithSevenZip {
 
     # 7z accepts the password on argv (-p<pw>). Prefer -spf (store full paths)
     # off and use -p without inline password by piping via -ssw and stdin in
-    # newer 7z — but 7z 22+ does not read password from stdin. We therefore
+    # newer 7z - but 7z 22+ does not read password from stdin. We therefore
     # use -p<pw> with a just-in-time argv that we never log.
     $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($Password)
     try {

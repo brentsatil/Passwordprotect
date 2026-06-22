@@ -1,6 +1,6 @@
 # Config.psm1
 # Loads and validates settings.json for the Curo PDF Protector.
-# Machine-wide only — never reads from %APPDATA% or user profile.
+# Machine-wide only - never reads from %APPDATA% or user profile.
 
 $script:ConfigPath = Join-Path $env:ProgramData 'CuroPDFProtect\settings.json'
 $script:CurrentSchemaVersion = 1
@@ -22,7 +22,7 @@ function Get-CuroConfig {
         throw "Config at '$Path' is not valid JSON: $($_.Exception.Message)"
     }
 
-    # Schema version gate — refuse to run on unknown schema.
+    # Schema version gate - refuse to run on unknown schema.
     if (-not $cfg.schema_version) {
         throw "Config at '$Path' missing schema_version."
     }
@@ -45,7 +45,7 @@ function Get-CuroConfig {
         }
     }
 
-    # Minimum-sanity checks — fail closed on misconfiguration.
+    # Minimum-sanity checks - fail closed on misconfiguration.
     Assert-ConfigField $cfg 'client_lookup_file' { param($v) $v -match '^[\\a-zA-Z]' }
     Assert-ConfigField $cfg 'escrow_dir'          { param($v) $v -match '^\\\\' -or $v -match '^[A-Za-z]:' }
     Assert-ConfigField $cfg 'dob_password_digits' { param($v) [int]$v -ge 6 -and [int]$v -le 12 }

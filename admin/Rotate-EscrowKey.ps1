@@ -7,7 +7,7 @@
     file server path referenced in settings.json, and writes the private key
     once to the specified destination (the safe USB).
 
-    Important: the OLD private key must be retained indefinitely — any file
+    Important: the OLD private key must be retained indefinitely - any file
     protected under the OLD public key can ONLY be recovered with the OLD
     private key. Each escrow sidecar records the pubkey fingerprint so the
     correct private key can be identified at recovery time.
@@ -67,7 +67,7 @@ try {
     Write-Host "Public  key written to: $pubPath"
     Write-Host "Private key written to: $NewPrivateKeyPath"
     Write-Host ""
-    Write-Host "Retain the PREVIOUS private key indefinitely — it is needed" -ForegroundColor Yellow
+    Write-Host "Retain the PREVIOUS private key indefinitely - it is needed" -ForegroundColor Yellow
     Write-Host "to recover files protected before this rotation." -ForegroundColor Yellow
 } finally {
     $rsa.Dispose()

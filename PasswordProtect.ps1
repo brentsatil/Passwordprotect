@@ -40,7 +40,7 @@ $script:SrcDir = Join-Path $script:Here 'src'
 # the user instead of silently closing the window.
 
 # ---------------------------------------------------------------------------
-# Pure helpers (no WPF, no binaries) — kept testable.
+# Pure helpers (no WPF, no binaries) - kept testable.
 # ---------------------------------------------------------------------------
 
 function Format-DobPassword {
@@ -161,7 +161,7 @@ function Invoke-ProtectOne {
 
     $name = Split-Path -Leaf $Path
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        return @{ Path = $Path; Success = $false; Message = "$name — not a file, skipped" }
+        return @{ Path = $Path; Success = $false; Message = "$name - not a file, skipped" }
     }
 
     $out = Get-OutputPath -InputPath $Path -Suffix $Settings.OutputSuffix
@@ -180,14 +180,14 @@ function Invoke-ProtectOne {
     }
 
     $reason = switch ($res.ErrorCode) {
-        'PRE_ENCRYPTED' { 'already password-protected — skipped' }
-        'FILE_LOCKED'   { 'file is open in another program — close it and retry' }
+        'PRE_ENCRYPTED' { 'already password-protected - skipped' }
+        'FILE_LOCKED'   { 'file is open in another program - close it and retry' }
         default {
             if ($res.Stderr -match 'exists') { "a $($Settings.OutputSuffix) copy already exists" }
             else { 'could not protect (engine error)' }
         }
     }
-    return @{ Path = $Path; Success = $false; Message = "$name — $reason" }
+    return @{ Path = $Path; Success = $false; Message = "$name - $reason" }
 }
 
 # ---------------------------------------------------------------------------
@@ -225,7 +225,7 @@ function Invoke-Main {
     try {
         $settings = Resolve-Settings
     } catch {
-        [System.Windows.MessageBox]::Show($_.Exception.Message, 'Password Protect — setup problem',
+        [System.Windows.MessageBox]::Show($_.Exception.Message, 'Password Protect - setup problem',
             'OK', 'Error') | Out-Null
         return 2
     }

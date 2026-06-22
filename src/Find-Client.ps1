@@ -8,7 +8,7 @@
     rules (warn / hard-fail), falls back to a local cache when the share is
     temporarily unreachable, and exposes a type-ahead search.
 
-    Returns PSCustomObjects — never ANY password-like data. DOB is the
+    Returns PSCustomObjects - never ANY password-like data. DOB is the
     "password" only by policy convention; callers must treat it with the
     same care as a user-typed password (pipe to stdin, zero the memory).
 #>
@@ -29,7 +29,7 @@ function Get-NormalisedDob {
     if ($digits.Length -ne 8) { return $null }
 
     # DDMMYYYY is the only accepted structure. Any 8-digit value that
-    # doesn't parse as a valid DDMMYYYY date is rejected — the row is
+    # doesn't parse as a valid DDMMYYYY date is rejected - the row is
     # skipped and the Practice Administrator is expected to fix the
     # source spreadsheet.
     $dd   = [int]$digits.Substring(0,2)
@@ -127,7 +127,7 @@ function Get-ClientList {
             Name    = $r.client_name
             Dob     = $norm              # canonical DDMMYYYY
             FileRef = $r.file_ref
-            Display = if ($r.file_ref) { "$($r.client_name)  —  $($r.file_ref)" } else { $r.client_name }
+            Display = if ($r.file_ref) { "$($r.client_name)  -  $($r.file_ref)" } else { $r.client_name }
         }
     }
 

@@ -6,9 +6,9 @@
     Admin-only. Requires the escrow private key (normally on the safe USB).
 
     Accepts any of:
-      -OutputPath  : path to the protected file — computes sha256 and looks up
+      -OutputPath  : path to the protected file - computes sha256 and looks up
       -SourceName  : original filename as recorded in the sidecar
-      -ClientRef   : client file_ref — returns all matching entries
+      -ClientRef   : client file_ref - returns all matching entries
       -Sha256      : direct hash lookup
 
     Writes the recovered password to the clipboard (never to the console,
@@ -89,7 +89,7 @@ try {
     $rsa.Dispose()
 }
 
-# Write to clipboard — requires a STA host. Avoid writing to console.
+# Write to clipboard - requires a STA host. Avoid writing to console.
 Set-Clipboard -Value $password
 [Array]::Clear($plainBytes, 0, $plainBytes.Length)
 Remove-Variable password

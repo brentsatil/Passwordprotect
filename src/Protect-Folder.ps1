@@ -6,7 +6,7 @@
     Invoked from the "Protect all files in folder" context-menu entry on
     folders. Shows ONE prompt, then applies the same password to each file
     by calling Invoke-ProtectFileCore in-process (so it does NOT hit the
-    `exit` calls in Protect-File.ps1 — those would terminate the whole
+    `exit` calls in Protect-File.ps1 - those would terminate the whole
     batch). Non-recursive by default. Skips already-produced _protected
     files and .escrow / .json sidecars.
 #>
