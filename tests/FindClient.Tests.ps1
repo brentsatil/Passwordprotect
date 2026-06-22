@@ -20,8 +20,17 @@ Describe 'Get-NormalisedDob' {
     It 'accepts already-canonical DDMMYYYY' {
         (Get-NormalisedDob '12031970') | Should -Be '12031970'
     }
-    It 'converts YYYYMMDD to DDMMYYYY' {
-        (Get-NormalisedDob '19700312') | Should -Be '12031970'
+    It 'rejects YYYYMMDD-shaped input (DDMMYYYY is the only structure)' {
+        # 19700312 would be 1970-03-12 under YYYYMMDD, but under DDMMYYYY
+        # it's day=19 month=70 which is invalid, so we reject. The Practice
+        # Administrator must fix the source spreadsheet to DDMMYYYY.
+        (Get-NormalisedDob '19700312') | Should -BeNullOrEmpty
+    }
+    It 'accepts DDMMYYYY dates with day 19 or 20' {
+        # Regression: earlier heuristic dispatched on leading two chars
+        # and misread these as year-first.
+        (Get-NormalisedDob '19081990') | Should -Be '19081990'
+        (Get-NormalisedDob '20051985') | Should -Be '20051985'
     }
     It 'rejects impossible dates' {
         (Get-NormalisedDob '32011970') | Should -BeNullOrEmpty

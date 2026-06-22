@@ -26,22 +26,15 @@ function Get-NormalisedDob {
 
     if ([string]::IsNullOrWhiteSpace($Raw)) { return $null }
     $digits = ($Raw -replace '[^\d]', '')
+    if ($digits.Length -ne 8) { return $null }
 
-    if ($digits.Length -eq 8) {
-        # Accept DDMMYYYY as-is.
-        $dd = [int]$digits.Substring(0,2)
-        $mm = [int]$digits.Substring(2,2)
-        $yyyy = [int]$digits.Substring(4,4)
-    }
-    elseif ($digits.Length -eq 8 -and $digits.Substring(0,2) -in @('19','20')) {
-        # Looks like YYYYMMDD — convert.
-        $yyyy = [int]$digits.Substring(0,4)
-        $mm   = [int]$digits.Substring(4,2)
-        $dd   = [int]$digits.Substring(6,2)
-    }
-    else {
-        return $null
-    }
+    # DDMMYYYY is the only accepted structure. Any 8-digit value that
+    # doesn't parse as a valid DDMMYYYY date is rejected — the row is
+    # skipped and the Practice Administrator is expected to fix the
+    # source spreadsheet.
+    $dd   = [int]$digits.Substring(0,2)
+    $mm   = [int]$digits.Substring(2,2)
+    $yyyy = [int]$digits.Substring(4,4)
 
     if ($mm -lt 1 -or $mm -gt 12) { return $null }
     if ($dd -lt 1 -or $dd -gt 31) { return $null }

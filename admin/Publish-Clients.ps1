@@ -58,13 +58,15 @@ function Normalise-Dob {
     if (-not $raw) { return $null }
     $s = "$raw" -replace '[^\d]', ''
     if ($s.Length -ne 8) { return $null }
-    # Interpret as DDMMYYYY unless the leading two look like a year.
-    if ($s.Substring(0,2) -in @('19','20')) {
-        $yyyy = [int]$s.Substring(0,4); $mm = [int]$s.Substring(4,2); $dd = [int]$s.Substring(6,2)
-    } else {
-        $dd = [int]$s.Substring(0,2); $mm = [int]$s.Substring(2,2); $yyyy = [int]$s.Substring(4,4)
-    }
-    try { [void][datetime]::new($yyyy, $mm, $dd) } catch { return $null }
+
+    # DDMMYYYY is the only accepted structure. Separators are stripped
+    # above so the CSV can store "12/03/1970" for readability, but once
+    # digits-only the 8 digits MUST parse as a valid DDMMYYYY date.
+    $dd = [int]$s.Substring(0,2); $mm = [int]$s.Substring(2,2); $yyyy = [int]$s.Substring(4,4)
+    if ($mm -lt 1 -or $mm -gt 12) { return $null }
+    if ($dd -lt 1 -or $dd -gt 31) { return $null }
+    if ($yyyy -lt 1900 -or $yyyy -gt 2100) { return $null }
+    try { [void][datetime]::new($yyyy,$mm,$dd) } catch { return $null }
     return ('{0:00}{1:00}{2:0000}' -f $dd,$mm,$yyyy)
 }
 
