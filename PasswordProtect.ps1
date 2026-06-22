@@ -72,7 +72,9 @@ function Get-OutputPath {
         [Parameter(Mandatory)] [string] $InputPath,
         [string] $Suffix = '_protected'
     )
-    $dir  = Split-Path -LiteralPath $InputPath -Parent
+    # NB: Split-Path -LiteralPath cannot be combined with -Parent (different
+    # parameter sets in Windows PowerShell 5.1). Use the .NET API instead.
+    $dir  = [System.IO.Path]::GetDirectoryName($InputPath)
     $stem = [IO.Path]::GetFileNameWithoutExtension($InputPath)
     $ext  = [IO.Path]::GetExtension($InputPath)
     $name = if ($ext -ieq '.pdf') { "$stem$Suffix$ext" } else { "$stem$Suffix.7z" }
