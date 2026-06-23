@@ -39,6 +39,8 @@ public partial class MainWindow : Window
 
     private void Clear_Click(object sender, RoutedEventArgs e) => _vm.Clear();
 
+    private async void Preview_Click(object sender, RoutedEventArgs e) => await _vm.PreviewAsync();
+
     private async void Protect_Click(object sender, RoutedEventArgs e)
     {
         if (PasswordBox.SecurePassword.Length == 0)

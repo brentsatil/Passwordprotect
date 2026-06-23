@@ -40,6 +40,43 @@ public sealed class MainViewModel : ObservableObject
     private bool _overwrite;
     public bool Overwrite { get => _overwrite; set => Set(ref _overwrite, value); }
 
+    /// <summary>The output naming template; supports tokens incl. {DetectedName}/{DetectedDate}.</summary>
+    public string Template
+    {
+        get => _services.Settings.NamingTemplate;
+        set
+        {
+            if (value != _services.Settings.NamingTemplate)
+            {
+                _services.Settings.NamingTemplate = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    /// <summary>Fill each row with the planned output name (running detection if the template needs it).</summary>
+    public async Task PreviewAsync()
+    {
+        if (Files.Count == 0) return;
+        Busy = true;
+        Status = "Previewing names…";
+        _services.Settings.AllowOverwrite = Overwrite;
+        try
+        {
+            foreach (FileItem item in Files)
+            {
+                DetectedFields detected = await _services.DetectAsync(item.InputPath);
+                ProtectionJob job = _services.BuildJob(item.InputPath, detected);
+                item.Message = "→ " + Path.GetFileName(job.OutputPath);
+            }
+            Status = "Preview ready — click Protect to apply.";
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
     public void AddFiles(IEnumerable<string> paths)
     {
         foreach (string p in paths)
@@ -74,8 +111,9 @@ public sealed class MainViewModel : ObservableObject
         {
             item.Status = "Pending";
             item.Message = "";
+            DetectedFields detected = await _services.DetectAsync(item.InputPath);
             byInput[item.InputPath] = item;
-            jobs.Add(_services.BuildJob(item.InputPath));
+            jobs.Add(_services.BuildJob(item.InputPath, detected));
         }
 
         var progress = new Progress<BatchProgress>(p =>

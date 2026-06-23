@@ -35,8 +35,27 @@ public sealed class AppServices
         Naming = new NamingEngine();
     }
 
+    /// <summary>True when the current template uses an in-document detection token.</summary>
+    public bool TemplateUsesDetection =>
+        Settings.NamingTemplate.Contains("{Detected", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Best-effort detection of name/date inside a document (only when the template needs it).</summary>
+    public async Task<DetectedFields> DetectAsync(string input, CancellationToken ct = default)
+    {
+        if (!TemplateUsesDetection) return DetectedFields.None;
+        try
+        {
+            string text = await Task.Run(() => DocumentTextExtractor.Extract(input), ct).ConfigureAwait(false);
+            return FieldDetector.Detect(text);
+        }
+        catch
+        {
+            return DetectedFields.None;
+        }
+    }
+
     /// <summary>Resolve format + smart output name for one input file.</summary>
-    public ProtectionJob BuildJob(string input)
+    public ProtectionJob BuildJob(string input, DetectedFields? detected = null)
     {
         OutputFormat fmt = FormatResolver.Resolve(input, Settings.OfficeFormat);
         if (!Registry.Supports(fmt)) fmt = OutputFormat.SevenZip; // graceful fallback
@@ -48,6 +67,8 @@ public sealed class AppServices
             OutputExtension = ext,
             Template = Settings.NamingTemplate,
             AllowOverwrite = Settings.AllowOverwrite,
+            DetectedName = detected?.Name,
+            DetectedDate = detected?.Date,
         };
         string outPath = Naming.BuildFullPath(ctx);
         return new ProtectionJob { InputPath = input, Format = fmt, OutputPath = outPath };
