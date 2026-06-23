@@ -11,8 +11,13 @@ public sealed class AppSettings
     public bool LongPathPrefix { get; set; } = true;
     public bool AllowOverwrite { get; set; }
 
-    /// <summary>What Office documents (.docx/.xlsx/.pptx) are protected as.</summary>
-    public OutputFormat OfficeFormat { get; set; } = OutputFormat.SevenZip;
+    /// <summary>
+    /// What Office documents (.docx/.xlsx/.pptx) are protected as. Defaults to
+    /// in-kind native encryption (a real protected .docx that opens in Office);
+    /// the user can switch this to <see cref="OutputFormat.SevenZip"/> per the
+    /// per-type choice.
+    /// </summary>
+    public OutputFormat OfficeFormat { get; set; } = OutputFormat.OfficeNative;
 
     public string NamingTemplate { get; set; } = "{OriginalName}_protected{Ext}";
     public int MaxParallel { get; set; } = 4;

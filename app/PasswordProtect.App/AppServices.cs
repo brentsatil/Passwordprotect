@@ -28,8 +28,8 @@ public sealed class AppServices
 
         Registry = new ProtectorRegistry()
             .Register(OutputFormat.Pdf, new QpdfProtector(Binaries))
-            .Register(OutputFormat.SevenZip, new SevenZipProtector(Binaries));
-        // OfficeNative is registered in Phase 3; until then Office maps to .7z below.
+            .Register(OutputFormat.SevenZip, new SevenZipProtector(Binaries))
+            .Register(OutputFormat.OfficeNative, new OfficeProtector());
 
         Batch = new BatchRunner(Registry);
         Naming = new NamingEngine();
