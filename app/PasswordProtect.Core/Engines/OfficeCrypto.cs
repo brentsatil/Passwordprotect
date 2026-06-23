@@ -39,14 +39,21 @@ public static class OfficeCrypto
         Encryptor enc = info.Encryptor;
         enc.ConfirmPassword(password);
 
-        using var poifs = new POIFSFileSystem();
-        using (Stream os = enc.GetDataStream(poifs))
-        using (Stream input = File.OpenRead(inputOoxml))
+        var poifs = new POIFSFileSystem(); // not IDisposable in NPOI — Close() in finally
+        try
         {
-            input.CopyTo(os);
+            using (Stream os = enc.GetDataStream(poifs))
+            using (Stream input = File.OpenRead(inputOoxml))
+            {
+                input.CopyTo(os);
+            }
+            using Stream outFile = File.Create(outputPath);
+            poifs.WriteFileSystem(outFile);
         }
-        using Stream outFile = File.Create(outputPath);
-        poifs.WriteFileSystem(outFile);
+        finally
+        {
+            poifs.Close();
+        }
     }
 
     /// <summary>
@@ -55,13 +62,21 @@ public static class OfficeCrypto
     /// </summary>
     public static bool TryDecrypt(string encryptedPath, string password, Stream destination)
     {
-        using var poifs = new POIFSFileSystem(File.OpenRead(encryptedPath));
-        var info = new EncryptionInfo(poifs);
-        Decryptor dec = Decryptor.GetInstance(info);
-        if (!dec.VerifyPassword(password)) return false;
+        using var fileIn = File.OpenRead(encryptedPath);
+        var poifs = new POIFSFileSystem(fileIn);
+        try
+        {
+            var info = new EncryptionInfo(poifs);
+            Decryptor dec = Decryptor.GetInstance(info);
+            if (!dec.VerifyPassword(password)) return false;
 
-        using Stream data = dec.GetDataStream(poifs);
-        data.CopyTo(destination);
-        return true;
+            using Stream data = dec.GetDataStream(poifs);
+            data.CopyTo(destination);
+            return true;
+        }
+        finally
+        {
+            poifs.Close();
+        }
     }
 }
