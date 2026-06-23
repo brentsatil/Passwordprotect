@@ -14,6 +14,13 @@ public static class OfficeCrypto
 {
     private static readonly byte[] CfbMagic = { 0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1 };
 
+    private static byte[] RandomBytes(int count)
+    {
+        var bytes = new byte[count];
+        System.Security.Cryptography.RandomNumberGenerator.Fill(bytes);
+        return bytes;
+    }
+
     static OfficeCrypto()
     {
         // NPOI's EncryptionInfo(EncryptionMode.Agile) resolves its builder by scanning
@@ -48,7 +55,20 @@ public static class OfficeCrypto
     {
         var info = new EncryptionInfo(EncryptionMode.Agile);
         Encryptor enc = info.Encryptor;
-        enc.ConfirmPassword(password);
+
+        // NPOI's convenience ConfirmPassword(string) overload forwards
+        // verifier/verifierSalt in the wrong order, which NREs the agile encryptor.
+        // Call the full overload directly with correctly-ordered, randomly generated
+        // material (the path NPOI's own TestEncryptor uses). Sizes are the agile
+        // AES-256 / SHA-512 defaults: 32-byte package key, 16-byte salts/verifier,
+        // 64-byte integrity (HMAC) key.
+        enc.ConfirmPassword(
+            password,
+            RandomBytes(32),  // keySpec  (AES-256 package key)
+            RandomBytes(16),  // keySalt
+            RandomBytes(16),  // verifier (verifierHashInput)
+            RandomBytes(16),  // verifierSalt
+            RandomBytes(64)); // integritySalt (SHA-512 HMAC key)
 
         var poifs = new POIFSFileSystem(); // not IDisposable in NPOI — Close() in finally
         try
