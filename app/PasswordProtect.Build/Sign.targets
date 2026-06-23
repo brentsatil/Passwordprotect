@@ -1,0 +1,30 @@
+<Project>
+
+  <!--
+    Optional Authenticode signing of the published exe. This target is a no-op
+    unless a certificate is supplied, so unsigned builds Just Work. To sign,
+    pass ONE of the following on the publish command line:
+
+      dotnet publish ... -p:SignCertThumbprint=<sha1-thumbprint-in-cert-store>
+      dotnet publish ... -p:SignCertPfx=<path-to.pfx> -p:SignCertPassword=<pw>
+
+    Requires signtool on PATH (Windows SDK). A timestamp server keeps the
+    signature valid after the cert expires.
+  -->
+  <Target Name="SignPublishedExe"
+          AfterTargets="Publish"
+          Condition="'$(SignCertThumbprint)' != '' or '$(SignCertPfx)' != ''">
+
+    <PropertyGroup>
+      <_SignTarget>$(PublishDir)$(AssemblyName).exe</_SignTarget>
+      <_TimestampUrl Condition="'$(SignTimestampUrl)' == ''">http://timestamp.digicert.com</_TimestampUrl>
+      <_TimestampUrl Condition="'$(SignTimestampUrl)' != ''">$(SignTimestampUrl)</_TimestampUrl>
+      <_SignArgs Condition="'$(SignCertThumbprint)' != ''">sign /fd SHA256 /sha1 $(SignCertThumbprint) /tr $(_TimestampUrl) /td SHA256 "$(_SignTarget)"</_SignArgs>
+      <_SignArgs Condition="'$(SignCertPfx)' != ''">sign /fd SHA256 /f "$(SignCertPfx)" /p "$(SignCertPassword)" /tr $(_TimestampUrl) /td SHA256 "$(_SignTarget)"</_SignArgs>
+    </PropertyGroup>
+
+    <Message Importance="high" Text="Authenticode-signing $(_SignTarget)" />
+    <Exec Command="signtool $(_SignArgs)" />
+  </Target>
+
+</Project>

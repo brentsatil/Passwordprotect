@@ -55,3 +55,33 @@ jobs:
           dotnet-version: '8.0.x'
       - name: Build WPF app (Release)
         run: dotnet build app/PasswordProtect.App/PasswordProtect.App.csproj -c Release
+
+  # Proves the portable single-file self-contained exe actually publishes and
+  # links every push (the publish itself is the test). The ~150 MB artifact is
+  # only uploaded on a manual run to avoid bloating routine pushes.
+  publish:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Publish portable single-file exe
+        run: >
+          dotnet publish app/PasswordProtect.App/PasswordProtect.App.csproj
+          -c Release -r win-x64 --self-contained
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true
+          -o publish
+      - name: Verify the exe was produced
+        run: |
+          if (!(Test-Path publish/PasswordProtect.exe)) { throw "PasswordProtect.exe was not produced" }
+          "{0:N1} MB" -f ((Get-Item publish/PasswordProtect.exe).Length / 1MB)
+      - name: Upload portable exe (manual runs only)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: PasswordProtect-portable
+          path: publish/PasswordProtect.exe
+          if-no-files-found: error
