@@ -9,3 +9,10 @@ tests/fixtures/out/
 
 # PowerShell module caches
 *.psd1.bak
+
+# .NET build output for the native app (scoped to app/ so the committed
+# top-level bin/ with qpdf.exe/7z.exe is never ignored).
+app/**/bin/
+app/**/obj/
+TestResults/
+*.user

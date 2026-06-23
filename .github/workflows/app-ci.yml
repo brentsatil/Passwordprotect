@@ -1,0 +1,45 @@
+name: app-ci
+
+# Builds and tests the native .NET 8 PasswordProtect app on a REAL Windows host.
+# PasswordProtect.Core is WPF-free, so the whole suite — pure logic plus real
+# qpdf/7z encryption round-trips — runs headlessly with `dotnet test`. The WPF
+# UI cannot be click-tested headlessly; it is covered by building it and by unit-
+# testing the view-model/batch layer directly (see the build job below).
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore app/PasswordProtect.Tests/PasswordProtect.Tests.csproj
+
+      - name: Build (Release)
+        run: dotnet build app/PasswordProtect.Tests/PasswordProtect.Tests.csproj -c Release --no-restore
+
+      - name: Test (real qpdf/7z round-trips + pure logic)
+        run: >
+          dotnet test app/PasswordProtect.Tests/PasswordProtect.Tests.csproj
+          -c Release --no-build
+          --logger "trx;LogFileName=app-test-results.trx"
+          --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-test-results
+          path: TestResults/**/*.trx
+          if-no-files-found: ignore
