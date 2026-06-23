@@ -10,14 +10,10 @@ encryption behaviour, with a real GUI, smart naming, and password editing.
 - **Bulk protect** many mixed files at once: drag-drop or *Add Files*, type one
   password, click **Apply**. Per-file status, runs in parallel, one bad file
   never stops the rest.
-- **Per-type encryption:**
+- **Per-type encryption (your choice):**
   - PDF → native AES-256 via qpdf.
-  - Word/Excel/PowerPoint → AES-256 `.7z` today. **Native ECMA-376 agile
-    encryption** (a real password-protected `.docx` that opens in Office) is
-    implemented (`OfficeProtector`) but currently inert pending an NPOI packaging
-    fix (`AgileEncryptionInfoBuilder` is unresolvable in the NuGet build); the app
-    transparently falls back to `.7z`. Re-register `OfficeNative` in `AppServices`
-    to enable it once NPOI is fixed.
+  - Word/Excel/PowerPoint → **native ECMA-376 agile encryption** (a real
+    password-protected `.docx`/`.xlsx`/`.pptx` that opens in Office), or `.7z`.
   - Anything else → AES-256 `.7z`.
 - **Smart naming:** an editable template with tokens — `{OriginalName}`, `{Ext}`,
   `{Date}`, `{DDMMYYYY}`, `{YYYYMMDD}`, `{Seq}`, plus `{DetectedName}` /

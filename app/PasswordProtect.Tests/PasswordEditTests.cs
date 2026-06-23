@@ -22,7 +22,7 @@ public class PasswordEditTests
 
     // ---- Office (managed, cross-platform) ----
 
-    [Fact(Skip = "Native Office encryption is inert: NPOI's AgileEncryptionInfoBuilder is unresolvable in the NuGet package (2.6.2/2.7.1); Office falls back to .7z. Re-enable when NPOI is fixed.")]
+    [Fact]
     public async Task Office_add_change_remove_lifecycle()
     {
         using var dir = new TempDir();

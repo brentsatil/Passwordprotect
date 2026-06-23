@@ -24,7 +24,7 @@ public class OfficeCryptoTests
         return ms.ToArray();
     }
 
-    [Fact(Skip = "Native Office encryption is inert: NPOI's AgileEncryptionInfoBuilder is unresolvable in the NuGet package (2.6.2/2.7.1); Office falls back to .7z. Re-enable when NPOI is fixed.")]
+    [Fact]
     public void Encrypt_then_decrypt_roundtrips_and_rejects_wrong_password()
     {
         using var dir = new TempDir();
@@ -51,7 +51,7 @@ public class OfficeCryptoTests
         }
     }
 
-    [Fact(Skip = "Native Office encryption is inert: NPOI's AgileEncryptionInfoBuilder is unresolvable in the NuGet package (2.6.2/2.7.1); Office falls back to .7z. Re-enable when NPOI is fixed.")]
+    [Fact]
     public async Task OfficeProtector_protects_and_refuses_preencrypted()
     {
         using var dir = new TempDir();

@@ -1,4 +1,3 @@
-using System.Reflection;
 using NPOI.POIFS.Crypt;
 using NPOI.POIFS.FileSystem;
 
@@ -17,26 +16,13 @@ public static class OfficeCrypto
 
     static OfficeCrypto()
     {
-        // NPOI looks up the agile-encryption builder (AgileEncryptionInfoBuilder) by
-        // simple type name via Type.GetType, which only searches NPOI's core assembly.
-        // That builder actually lives in a sibling NPOI assembly, so: (a) force those
-        // assemblies to load, and (b) bridge the failed lookup via the TypeResolve event.
-        AppDomain.CurrentDomain.TypeResolve += static (_, e) =>
-        {
-            if (!e.Name.StartsWith("NPOI.", StringComparison.Ordinal)) return null;
-            foreach (Assembly asm in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                if (asm.GetName().Name?.StartsWith("NPOI", StringComparison.Ordinal) == true
-                    && asm.GetType(e.Name) is not null)
-                {
-                    return asm;
-                }
-            }
-            return null;
-        };
-
-        _ = typeof(NPOI.XSSF.UserModel.XSSFWorkbook);   // ensure NPOI.OOXML is loaded
-        _ = typeof(NPOI.OpenXml4Net.OPC.OPCPackage);    // ensure NPOI.OpenXml4Net is loaded
+        // NPOI's EncryptionInfo(EncryptionMode.Agile) resolves its builder by scanning
+        // the ALREADY-LOADED assemblies for NPOI.POIFS.Crypt.Agile.AgileEncryptionInfoBuilder
+        // (which lives in NPOI.OOXML) and throws "Not found type" if that assembly has not
+        // been loaded yet. A discarded `typeof(...)` reference is optimized away in Release,
+        // so we actually instantiate the builder here to guarantee NPOI.OOXML is loaded
+        // before any encryption call.
+        _ = new NPOI.POIFS.Crypt.Agile.AgileEncryptionInfoBuilder();
     }
 
     /// <summary>True if the file is an encrypted OOXML (CFB container) rather than a plain zip.</summary>
