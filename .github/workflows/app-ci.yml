@@ -43,3 +43,15 @@ jobs:
           name: app-test-results
           path: TestResults/**/*.trx
           if-no-files-found: ignore
+
+  # The WPF UI can't be click-tested headlessly, but it MUST compile. This job
+  # builds it (framework-dependent, fast) so XAML/code-behind errors fail CI.
+  build-app:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build WPF app (Release)
+        run: dotnet build app/PasswordProtect.App/PasswordProtect.App.csproj -c Release
