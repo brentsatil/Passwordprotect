@@ -34,7 +34,8 @@ public static partial class FieldDetector
     [GeneratedRegex(@"\b(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})\b")]
     private static partial Regex DayMonthYear();
 
-    [GeneratedRegex(@"(?:Name|Client|Client name|Prepared for|Account holder|Policyholder)\s*[:\-]\s*([A-Z][\p{L}'’.\-]+(?:\s+[A-Z][\p{L}'’.\-]+){0,3})")]
+    // Separators are spaces/tabs only (not \s) so a detected name never runs across a line break.
+    [GeneratedRegex(@"(?:Name|Client|Client name|Prepared for|Account holder|Policyholder)[ \t]*[:\-][ \t]*([A-Z][\p{L}'’.\-]+(?:[ \t]+[A-Z][\p{L}'’.\-]+){0,3})")]
     private static partial Regex NameLabel();
 
     public static DetectedFields Detect(string? text)
