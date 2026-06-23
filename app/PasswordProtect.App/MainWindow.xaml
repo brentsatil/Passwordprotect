@@ -45,19 +45,41 @@
             </Grid>
         </Border>
 
-        <!-- Password row -->
-        <Grid Grid.Row="2" Margin="0,10,0,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="0" Text="Password:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-            <PasswordBox Grid.Column="1" x:Name="PasswordBox"/>
-            <TextBlock Grid.Column="2" Text="Confirm:" VerticalAlignment="Center" Margin="12,0,6,0"/>
-            <PasswordBox Grid.Column="3" x:Name="ConfirmBox"/>
-        </Grid>
+        <!-- Operation + passwords -->
+        <StackPanel Grid.Row="2" Margin="0,10,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Action:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <ComboBox Grid.Column="1" Width="180" ItemsSource="{Binding Operations}"
+                          SelectedItem="{Binding Operation}"/>
+                <TextBlock Grid.Column="2" VerticalAlignment="Center" Margin="12,0,0,0" Foreground="#FF888888"
+                           Text="Protect = add a new password. Change/Remove need the current password."/>
+            </Grid>
+            <Grid Margin="0,8,0,0" IsEnabled="{Binding NeedsCurrentPassword}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Current password:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <PasswordBox Grid.Column="1" x:Name="CurrentBox"/>
+            </Grid>
+            <Grid Margin="0,8,0,0" IsEnabled="{Binding NeedsNewPassword}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="New password:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <PasswordBox Grid.Column="1" x:Name="PasswordBox"/>
+                <TextBlock Grid.Column="2" Text="Confirm:" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                <PasswordBox Grid.Column="3" x:Name="ConfirmBox"/>
+            </Grid>
+        </StackPanel>
 
         <StackPanel Grid.Row="3" Margin="0,8,0,0">
             <Grid>
@@ -87,7 +109,7 @@
                 <Button Content="Clear" Click="Clear_Click" Padding="10,4" Margin="4,0"/>
                 <Button Content="Preview" Click="Preview_Click" Padding="10,4" Margin="4,0"
                         IsEnabled="{Binding CanRun}"/>
-                <Button Content="Protect" Click="Protect_Click" Padding="14,4" Margin="4,0"
+                <Button Content="Apply" Click="Apply_Click" Padding="14,4" Margin="4,0"
                         FontWeight="SemiBold" IsEnabled="{Binding CanRun}"/>
             </StackPanel>
         </Grid>

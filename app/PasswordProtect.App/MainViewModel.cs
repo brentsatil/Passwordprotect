@@ -40,6 +40,29 @@ public sealed class MainViewModel : ObservableObject
     private bool _overwrite;
     public bool Overwrite { get => _overwrite; set => Set(ref _overwrite, value); }
 
+    public AppOperation[] Operations { get; } =
+        { AppOperation.Protect, AppOperation.ChangePassword, AppOperation.RemovePassword };
+
+    private AppOperation _operation = AppOperation.Protect;
+    public AppOperation Operation
+    {
+        get => _operation;
+        set
+        {
+            if (Set(ref _operation, value))
+            {
+                OnPropertyChanged(nameof(NeedsCurrentPassword));
+                OnPropertyChanged(nameof(NeedsNewPassword));
+            }
+        }
+    }
+
+    /// <summary>Change/Remove need the file's existing password.</summary>
+    public bool NeedsCurrentPassword => Operation != AppOperation.Protect;
+
+    /// <summary>Protect/Change need a new password (Remove does not).</summary>
+    public bool NeedsNewPassword => Operation != AppOperation.RemovePassword;
+
     /// <summary>The output naming template; supports tokens incl. {DetectedName}/{DetectedDate}.</summary>
     public string Template
     {
@@ -144,4 +167,58 @@ public sealed class MainViewModel : ObservableObject
             Busy = false;
         }
     }
+
+    /// <summary>Bulk add/change/remove of passwords. Takes ownership of both SecureStrings.</summary>
+    public async Task RunEditAsync(SecureString? current, SecureString? newPassword, PasswordEditMode mode)
+    {
+        if (Files.Count == 0) { current?.Dispose(); newPassword?.Dispose(); return; }
+
+        Busy = true;
+        Status = mode == PasswordEditMode.Remove ? "Removing passwords…" : "Updating passwords…";
+        _services.Settings.AllowOverwrite = Overwrite;
+
+        var byInput = new Dictionary<string, FileItem>(StringComparer.OrdinalIgnoreCase);
+        var jobs = new List<ProtectionJob>();
+        foreach (FileItem item in Files)
+        {
+            item.Status = "Pending";
+            item.Message = "";
+            DetectedFields detected = await _services.DetectAsync(item.InputPath);
+            byInput[item.InputPath] = item;
+            jobs.Add(_services.BuildJob(item.InputPath, detected));
+        }
+
+        var progress = new Progress<BatchProgress>(p =>
+        {
+            if (byInput.TryGetValue(p.Job.InputPath, out FileItem? fi))
+            {
+                fi.Status = p.Job.Status.ToString();
+                fi.Message = p.Job.Message;
+                fi.OutputPath = p.Job.OutputPath;
+            }
+            Status = $"{p.Completed}/{p.Total} processed…";
+        });
+
+        try
+        {
+            await _services.Batch.RunEditAsync(
+                jobs, current, newPassword, mode, _services.Settings.ToProtectOptions(),
+                _services.Settings.MaxParallel, progress);
+            int ok = jobs.Count(j => j.Status == JobStatus.Succeeded);
+            Status = $"Done — {ok} of {jobs.Count} updated.";
+        }
+        catch (Exception ex)
+        {
+            Status = "Error: " + ex.Message;
+        }
+        finally
+        {
+            current?.Dispose();
+            newPassword?.Dispose();
+            Busy = false;
+        }
+    }
 }
+
+/// <summary>What the Apply button does.</summary>
+public enum AppOperation { Protect, ChangePassword, RemovePassword }

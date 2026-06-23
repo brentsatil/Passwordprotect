@@ -17,6 +17,19 @@ public interface IProtector
         string input, string output, SecureString password, ProtectOptions options, CancellationToken ct = default);
 }
 
+/// <summary>
+/// Adds, changes or removes the password on an already-handled file. Implemented
+/// by engines that support editing existing protection (qpdf, 7z, Office).
+/// </summary>
+public interface IPasswordEditor
+{
+    /// <param name="current">The file's current password (ignored for <see cref="PasswordEditMode.Add"/>).</param>
+    /// <param name="newPassword">The new password (null/ignored for <see cref="PasswordEditMode.Remove"/>).</param>
+    Task<ProtectResult> ChangePasswordAsync(
+        string input, string output, SecureString? current, SecureString? newPassword,
+        PasswordEditMode mode, ProtectOptions options, CancellationToken ct = default);
+}
+
 /// <summary>Maps an <see cref="OutputFormat"/> to the engine that handles it.</summary>
 public sealed class ProtectorRegistry
 {
@@ -34,4 +47,8 @@ public sealed class ProtectorRegistry
         _map.TryGetValue(format, out var p)
             ? p
             : throw new NotSupportedException($"No protector registered for {format}.");
+
+    public IPasswordEditor ResolveEditor(OutputFormat format) =>
+        Resolve(format) as IPasswordEditor
+        ?? throw new NotSupportedException($"{format} does not support password editing.");
 }

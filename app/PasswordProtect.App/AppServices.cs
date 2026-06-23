@@ -61,16 +61,32 @@ public sealed class AppServices
         if (!Registry.Supports(fmt)) fmt = OutputFormat.SevenZip; // graceful fallback
 
         string ext = FormatResolver.OutputExtension(input, fmt);
-        var ctx = new NamingContext
+
+        // Overwrite-in-place only makes sense when the output keeps the same
+        // extension (PDF->pdf, Office native->same). When it does, the output IS
+        // the original file; otherwise fall back to a new, smartly-named file.
+        string inExt = Path.GetExtension(input);
+        bool inPlace = Settings.AllowOverwrite && string.Equals(ext, inExt, StringComparison.OrdinalIgnoreCase);
+
+        string outPath;
+        if (inPlace)
         {
-            InputPath = input,
-            OutputExtension = ext,
-            Template = Settings.NamingTemplate,
-            AllowOverwrite = Settings.AllowOverwrite,
-            DetectedName = detected?.Name,
-            DetectedDate = detected?.Date,
-        };
-        string outPath = Naming.BuildFullPath(ctx);
+            outPath = input;
+        }
+        else
+        {
+            var ctx = new NamingContext
+            {
+                InputPath = input,
+                OutputExtension = ext,
+                Template = Settings.NamingTemplate,
+                AllowOverwrite = false, // never silently clobber a different file
+                DetectedName = detected?.Name,
+                DetectedDate = detected?.Date,
+            };
+            outPath = Naming.BuildFullPath(ctx);
+        }
+
         return new ProtectionJob { InputPath = input, Format = fmt, OutputPath = outPath };
     }
 }

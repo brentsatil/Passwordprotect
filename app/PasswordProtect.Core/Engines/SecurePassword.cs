@@ -35,4 +35,22 @@ public static class SecurePassword
             Marshal.ZeroFreeBSTR(bstr);
         }
     }
+
+    /// <summary>Run <paramref name="body"/> with two optional passwords' plaintext, wiping both BSTRs after.</summary>
+    public static T UsePair<T>(SecureString? a, SecureString? b, Func<string?, string?, T> body)
+    {
+        IntPtr pa = a is null ? IntPtr.Zero : Marshal.SecureStringToBSTR(a);
+        IntPtr pb = b is null ? IntPtr.Zero : Marshal.SecureStringToBSTR(b);
+        try
+        {
+            string? sa = pa == IntPtr.Zero ? null : Marshal.PtrToStringBSTR(pa);
+            string? sb = pb == IntPtr.Zero ? null : Marshal.PtrToStringBSTR(pb);
+            return body(sa, sb);
+        }
+        finally
+        {
+            if (pa != IntPtr.Zero) Marshal.ZeroFreeBSTR(pa);
+            if (pb != IntPtr.Zero) Marshal.ZeroFreeBSTR(pb);
+        }
+    }
 }

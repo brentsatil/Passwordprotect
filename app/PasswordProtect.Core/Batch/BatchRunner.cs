@@ -80,4 +80,57 @@ public sealed class BatchRunner
 
         await Task.WhenAll(tasks).ConfigureAwait(false);
     }
+
+    /// <summary>Bulk add/change/remove of passwords, same parallelism/cancellation contract as <see cref="RunAsync"/>.</summary>
+    public async Task RunEditAsync(
+        IReadOnlyList<ProtectionJob> jobs,
+        SecureString? current,
+        SecureString? newPassword,
+        PasswordEditMode mode,
+        ProtectOptions options,
+        int maxParallel,
+        IProgress<BatchProgress>? progress = null,
+        CancellationToken ct = default)
+    {
+        using var sem = new SemaphoreSlim(Math.Max(1, maxParallel));
+        int completed = 0;
+
+        var tasks = jobs.Select(async job =>
+        {
+            await sem.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                ct.ThrowIfCancellationRequested();
+                job.Status = JobStatus.Running;
+
+                IPasswordEditor editor = _registry.ResolveEditor(job.Format);
+                ProtectResult res = await editor
+                    .ChangePasswordAsync(job.InputPath, job.OutputPath, current, newPassword, mode, options, ct)
+                    .ConfigureAwait(false);
+
+                job.Code = res.Code;
+                job.Status = res.Success ? JobStatus.Succeeded : JobStatus.Failed;
+                job.Message = res.Message;
+                if (res.Success && res.OutputPath != null) job.OutputPath = res.OutputPath;
+            }
+            catch (OperationCanceledException)
+            {
+                job.Status = JobStatus.Skipped;
+                job.Message = "Cancelled";
+            }
+            catch (Exception ex)
+            {
+                job.Status = JobStatus.Failed;
+                job.Message = ex.Message;
+            }
+            finally
+            {
+                int done = Interlocked.Increment(ref completed);
+                progress?.Report(new BatchProgress(job, done, jobs.Count));
+                sem.Release();
+            }
+        }).ToList();
+
+        await Task.WhenAll(tasks).ConfigureAwait(false);
+    }
 }

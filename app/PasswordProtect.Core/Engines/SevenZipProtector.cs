@@ -8,7 +8,7 @@ namespace PasswordProtect.Core;
 /// <c>a -t7z -mhe=on -mx=5 -y -p&lt;pw&gt;</c>, header encryption on so a wrong
 /// password fails <c>7z t</c>; temp-then-atomic-rename; exit 0 = success.
 /// </summary>
-public sealed class SevenZipProtector : IProtector
+public sealed class SevenZipProtector : IProtector, IPasswordEditor
 {
     private readonly IBinaryProvider _binaries;
 
@@ -68,5 +68,72 @@ public sealed class SevenZipProtector : IProtector
         }
 
         return ProtectResult.Ok(output, res.Combined);
+    }
+
+    /// <summary>
+    /// Editing a .7z means re-keying the archive: extract with the current password
+    /// to a temp dir, then re-create it (with the new password for Change, or with
+    /// no password for Remove). A failed extract = wrong current password.
+    /// </summary>
+    public async Task<ProtectResult> ChangePasswordAsync(
+        string input, string output, SecureString? current, SecureString? newPassword,
+        PasswordEditMode mode, ProtectOptions options, CancellationToken ct = default)
+    {
+        if (!File.Exists(input))
+            return ProtectResult.Fail(ProtectErrorCode.InputNotFound, "Input not found.");
+        if (File.Exists(output) && !options.AllowOverwrite)
+            return ProtectResult.Fail(ProtectErrorCode.OutputExists, "Output exists and overwrite is disabled.");
+
+        // Adding protection to a plain file is just the normal protect path.
+        if (mode == PasswordEditMode.Add)
+            return await ProtectAsync(input, output, newPassword!, options, ct).ConfigureAwait(false);
+
+        string sevenZip = await _binaries.GetSevenZipPathAsync(ct).ConfigureAwait(false);
+        string workDir = Path.Combine(Path.GetTempPath(), "pp-7z-edit-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(workDir);
+        string tmpOut = output + ".tmp";
+        try
+        {
+            var extractArgs = SecurePassword.Use(current!, cur =>
+                new List<string> { "x", "-p" + cur, "-o" + workDir, "-y", "--", input });
+            ProcessResult ex = await NativeProcessRunner.RunAsync(sevenZip, extractArgs, ct).ConfigureAwait(false);
+            if (ex.ExitCode != 0)
+                return ProtectResult.Fail(ProtectErrorCode.WrongPassword,
+                    "Wrong current password or the archive could not be read.");
+
+            string[] entries = Directory.GetFileSystemEntries(workDir);
+            if (entries.Length == 0)
+                return ProtectResult.Fail(ProtectErrorCode.EngineFailure, "Archive was empty.");
+
+            List<string> addArgs = mode == PasswordEditMode.Remove
+                ? new List<string> { "a", "-t7z", "-mx=5", "-y", tmpOut }
+                : SecurePassword.Use(newPassword!, np =>
+                    new List<string> { "a", "-t7z", "-mhe=on", "-mx=5", "-y", "-p" + np, tmpOut });
+            addArgs.AddRange(entries);
+
+            ProcessResult ar = await NativeProcessRunner.RunAsync(sevenZip, addArgs, ct).ConfigureAwait(false);
+            if (ar.ExitCode != 0 || !File.Exists(tmpOut))
+            {
+                QpdfProtector.TryDelete(tmpOut);
+                return ProtectResult.Fail(ProtectErrorCode.EngineFailure, ar.Combined);
+            }
+
+            File.Move(tmpOut, output, overwrite: true);
+            return ProtectResult.Ok(output, ar.Combined);
+        }
+        catch (OperationCanceledException)
+        {
+            QpdfProtector.TryDelete(tmpOut);
+            return ProtectResult.Fail(ProtectErrorCode.Cancelled, "Cancelled.");
+        }
+        catch (Exception e)
+        {
+            QpdfProtector.TryDelete(tmpOut);
+            return ProtectResult.Fail(ProtectErrorCode.EngineFailure, e.Message);
+        }
+        finally
+        {
+            try { Directory.Delete(workDir, recursive: true); } catch { /* best effort */ }
+        }
     }
 }

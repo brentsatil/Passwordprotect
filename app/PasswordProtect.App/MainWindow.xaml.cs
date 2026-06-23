@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Windows;
+using PasswordProtect.Core;
 
 namespace PasswordProtect.App;
 
@@ -41,27 +42,58 @@ public partial class MainWindow : Window
 
     private async void Preview_Click(object sender, RoutedEventArgs e) => await _vm.PreviewAsync();
 
-    private async void Protect_Click(object sender, RoutedEventArgs e)
+    private async void Apply_Click(object sender, RoutedEventArgs e)
     {
-        if (PasswordBox.SecurePassword.Length == 0)
+        bool needsNew = _vm.NeedsNewPassword;
+        bool needsCurrent = _vm.NeedsCurrentPassword;
+
+        if (needsNew && PasswordBox.SecurePassword.Length == 0)
         {
-            MessageBox.Show(this, "Enter a password first.", "PasswordProtect",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
+            Warn("Enter a new password first.");
             return;
         }
-        if (ConfirmBox.SecurePassword.Length > 0 &&
+        if (needsNew && ConfirmBox.SecurePassword.Length > 0 &&
             !SecureEquals(PasswordBox.SecurePassword, ConfirmBox.SecurePassword))
         {
-            MessageBox.Show(this, "The two passwords do not match.", "PasswordProtect",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
+            Warn("The two passwords do not match.");
+            return;
+        }
+        if (needsCurrent && CurrentBox.SecurePassword.Length == 0)
+        {
+            Warn("Enter the current password.");
             return;
         }
 
-        SecureString pw = PasswordBox.SecurePassword.Copy();
-        await _vm.RunAsync(pw); // RunAsync disposes pw
+        if (Overwrite_NeedsConfirm() &&
+            MessageBox.Show(this,
+                "Overwrite the original files in place? This replaces them with the result and cannot be undone.",
+                "PasswordProtect", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK)
+        {
+            return;
+        }
+
+        switch (_vm.Operation)
+        {
+            case AppOperation.Protect:
+                await _vm.RunAsync(PasswordBox.SecurePassword.Copy());
+                break;
+            case AppOperation.ChangePassword:
+                await _vm.RunEditAsync(CurrentBox.SecurePassword.Copy(), PasswordBox.SecurePassword.Copy(), PasswordEditMode.Change);
+                break;
+            case AppOperation.RemovePassword:
+                await _vm.RunEditAsync(CurrentBox.SecurePassword.Copy(), null, PasswordEditMode.Remove);
+                break;
+        }
+
         PasswordBox.Clear();
         ConfirmBox.Clear();
+        CurrentBox.Clear();
     }
+
+    private bool Overwrite_NeedsConfirm() => _vm.Overwrite;
+
+    private void Warn(string message) =>
+        MessageBox.Show(this, message, "PasswordProtect", MessageBoxButton.OK, MessageBoxImage.Warning);
 
     private static bool SecureEquals(SecureString a, SecureString b)
     {
