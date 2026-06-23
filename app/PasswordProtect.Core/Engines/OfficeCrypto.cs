@@ -1,3 +1,4 @@
+using System.Reflection;
 using NPOI.POIFS.Crypt;
 using NPOI.POIFS.FileSystem;
 
@@ -13,6 +14,30 @@ namespace PasswordProtect.Core;
 public static class OfficeCrypto
 {
     private static readonly byte[] CfbMagic = { 0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1 };
+
+    static OfficeCrypto()
+    {
+        // NPOI looks up the agile-encryption builder (AgileEncryptionInfoBuilder) by
+        // simple type name via Type.GetType, which only searches NPOI's core assembly.
+        // That builder actually lives in a sibling NPOI assembly, so: (a) force those
+        // assemblies to load, and (b) bridge the failed lookup via the TypeResolve event.
+        AppDomain.CurrentDomain.TypeResolve += static (_, e) =>
+        {
+            if (!e.Name.StartsWith("NPOI.", StringComparison.Ordinal)) return null;
+            foreach (Assembly asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                if (asm.GetName().Name?.StartsWith("NPOI", StringComparison.Ordinal) == true
+                    && asm.GetType(e.Name) is not null)
+                {
+                    return asm;
+                }
+            }
+            return null;
+        };
+
+        _ = typeof(NPOI.XSSF.UserModel.XSSFWorkbook);   // ensure NPOI.OOXML is loaded
+        _ = typeof(NPOI.OpenXml4Net.OPC.OPCPackage);    // ensure NPOI.OpenXml4Net is loaded
+    }
 
     /// <summary>True if the file is an encrypted OOXML (CFB container) rather than a plain zip.</summary>
     public static bool IsEncryptedOoxml(string path)
