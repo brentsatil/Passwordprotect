@@ -1,3 +1,4 @@
+using System.IO;
 using System.Reflection;
 using PasswordProtect.Core;
 
@@ -28,8 +29,11 @@ public sealed class AppServices
 
         Registry = new ProtectorRegistry()
             .Register(OutputFormat.Pdf, new QpdfProtector(Binaries))
-            .Register(OutputFormat.SevenZip, new SevenZipProtector(Binaries))
-            .Register(OutputFormat.OfficeNative, new OfficeProtector());
+            .Register(OutputFormat.SevenZip, new SevenZipProtector(Binaries));
+        // Native Office (OfficeProtector) is implemented but not registered yet:
+        // NPOI's agile-encryption builder is unresolvable in the NuGet package, so
+        // Office requests fall back to .7z (see BuildJob). Re-register here once the
+        // NPOI issue is resolved to enable the in-kind native Office option.
 
         Batch = new BatchRunner(Registry);
         Naming = new NamingEngine();

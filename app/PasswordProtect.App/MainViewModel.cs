@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Security;
 using System.Windows;
 using PasswordProtect.Core;

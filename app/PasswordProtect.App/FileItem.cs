@@ -1,3 +1,5 @@
+using System.IO;
+
 namespace PasswordProtect.App;
 
 /// <summary>One row in the bulk list, bound to the UI with live status updates.</summary>
