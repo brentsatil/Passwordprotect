@@ -5,9 +5,10 @@ using Xunit;
 namespace PasswordProtect.Tests;
 
 /// <summary>
-/// Native Office agile-encryption round-trips. NPOI is fully managed, so these
-/// run on every OS (no Windows guard needed). "Opens in real Office" is a manual
-/// checklist item; here we prove the crypto round-trips and rejects bad passwords.
+/// Native Office agile-encryption round-trips. The MS-OFFCRYPTO implementation is
+/// fully managed, so these run on every OS (no Windows guard needed). "Opens in real
+/// Office" is a manual checklist item; here we prove the crypto round-trips and
+/// rejects bad passwords.
 /// </summary>
 public class OfficeCryptoTests
 {
@@ -24,7 +25,7 @@ public class OfficeCryptoTests
         return ms.ToArray();
     }
 
-    [Fact(Skip = "NPOI's agile-encryption write path is broken on .NET (NRE in CryptoFunctions.GetCipher); native Office falls back to .7z. Re-enable with a working backend.")]
+    [Fact]
     public void Encrypt_then_decrypt_roundtrips_and_rejects_wrong_password()
     {
         using var dir = new TempDir();
@@ -51,7 +52,7 @@ public class OfficeCryptoTests
         }
     }
 
-    [Fact(Skip = "NPOI's agile-encryption write path is broken on .NET (NRE in CryptoFunctions.GetCipher); native Office falls back to .7z. Re-enable with a working backend.")]
+    [Fact]
     public async Task OfficeProtector_protects_and_refuses_preencrypted()
     {
         using var dir = new TempDir();

@@ -10,17 +10,15 @@ encryption behaviour, with a real GUI, smart naming, and password editing.
 - **Bulk protect** many mixed files at once: drag-drop or *Add Files*, type one
   password, click **Apply**. Per-file status, runs in parallel, one bad file
   never stops the rest.
-- **Per-type encryption:**
+- **Per-type encryption (your choice):**
   - PDF → native AES-256 via qpdf.
-  - Word/Excel/PowerPoint → AES-256 `.7z` today. **Native ECMA-376 agile
-    encryption** (a real password-protected `.docx` that opens in Office) is
-    implemented end-to-end (`OfficeProtector` / `OfficeCrypto`) but **inert**: NPOI's
-    agile-encryption *write* path is broken on .NET — we worked around two NPOI bugs
-    (an unloaded builder assembly and a `ConfirmPassword` argument swap), but it then
-    NREs inside NPOI's own `CryptoFunctions.GetCipher`. The app transparently falls
-    back to `.7z`. Re-enabling native Office needs a working backend (a from-scratch
-    MS-OFFCRYPTO implementation, or a fixed NPOI), after which register `OfficeNative`
-    in `AppServices`.
+  - Word/Excel/PowerPoint → **native ECMA-376 agile encryption** (a real
+    password-protected `.docx`/`.xlsx`/`.pptx` that opens in Office), or `.7z`.
+    Implemented from scratch in `OfficeCrypto` per MS-OFFCRYPTO (AES-256-CBC +
+    SHA-512 + HMAC via `System.Security.Cryptography`, CFB container via OpenMcdf) —
+    NPOI's agile write path is broken on .NET, so it is not used. CI verifies the
+    encrypt→decrypt round-trip and wrong-password rejection; **confirm one file opens
+    in real Microsoft Office** as a manual check before relying on it (see below).
   - Anything else → AES-256 `.7z`.
 - **Smart naming:** an editable template with tokens — `{OriginalName}`, `{Ext}`,
   `{Date}`, `{DDMMYYYY}`, `{YYYYMMDD}`, `{Seq}`, plus `{DetectedName}` /

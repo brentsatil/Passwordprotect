@@ -22,7 +22,7 @@ public class PasswordEditTests
 
     // ---- Office (managed, cross-platform) ----
 
-    [Fact(Skip = "NPOI's agile-encryption write path is broken on .NET (NRE in CryptoFunctions.GetCipher); native Office falls back to .7z. Re-enable with a working backend.")]
+    [Fact]
     public async Task Office_add_change_remove_lifecycle()
     {
         using var dir = new TempDir();
