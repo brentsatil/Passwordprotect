@@ -12,12 +12,13 @@ public sealed class AppSettings
     public bool AllowOverwrite { get; set; }
 
     /// <summary>
-    /// What Office documents (.docx/.xlsx/.pptx) are protected as. Defaults to
-    /// in-kind native encryption (a real protected .docx that opens in Office);
-    /// the user can switch this to <see cref="OutputFormat.SevenZip"/> per the
-    /// per-type choice.
+    /// What Office documents (.docx/.xlsx/.pptx) are protected as. Native in-kind
+    /// Office encryption is implemented (OfficeProtector) but inert pending a working
+    /// backend (NPOI's agile write path is broken on .NET), so this defaults to
+    /// <see cref="OutputFormat.SevenZip"/>; it becomes a per-type choice once native
+    /// Office is re-enabled.
     /// </summary>
-    public OutputFormat OfficeFormat { get; set; } = OutputFormat.OfficeNative;
+    public OutputFormat OfficeFormat { get; set; } = OutputFormat.SevenZip;
 
     public string NamingTemplate { get; set; } = "{OriginalName}_protected{Ext}";
     public int MaxParallel { get; set; } = 4;

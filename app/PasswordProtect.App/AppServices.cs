@@ -29,8 +29,14 @@ public sealed class AppServices
 
         Registry = new ProtectorRegistry()
             .Register(OutputFormat.Pdf, new QpdfProtector(Binaries))
-            .Register(OutputFormat.SevenZip, new SevenZipProtector(Binaries))
-            .Register(OutputFormat.OfficeNative, new OfficeProtector());
+            .Register(OutputFormat.SevenZip, new SevenZipProtector(Binaries));
+        // Native Office (OfficeProtector) is implemented but NOT registered: NPOI's
+        // agile-encryption WRITE path is broken on .NET (unloaded builder assembly, a
+        // ConfirmPassword arg-swap, and a NullReferenceException in CryptoFunctions.
+        // GetCipher — the encrypt stream is half-implemented, cf. its "TODO" comment).
+        // OfficeCrypto already works around the first two; the third is inside NPOI.
+        // Office therefore falls back to .7z (see BuildJob). Register here once Office
+        // encryption is handled by a working backend (custom MS-OFFCRYPTO or fixed NPOI).
 
         Batch = new BatchRunner(Registry);
         Naming = new NamingEngine();
