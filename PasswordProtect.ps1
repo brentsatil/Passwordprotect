@@ -1,20 +1,16 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Standalone drag-and-drop "password protect" tool.
+    PDF-only business password protection tool.
 
 .DESCRIPTION
     Open it (double-click PasswordProtect.cmd) and a drop window appears, or
     drag files straight onto PasswordProtect.cmd. For every file dropped:
-      - PDFs            -> a real password-protected PDF (AES-256, via qpdf).
-      - everything else -> an encrypted .7z archive   (AES-256, via 7-Zip).
-    A single popup asks for a date of birth; that DOB (DDMMYYYY) becomes the
-    password for every file in the drop. Each protected copy is written into
-    the SAME folder as the original; the original is kept.
-
-    This is the lightweight personal cousin of the enterprise tool in this
-    repo: it reuses the encryption engine (Protect-Pdf / Protect-WithSevenZip)
-    but deliberately skips escrow, the client CSV, Outlook and audit logging.
+      - PDFs -> password-protected PDF (AES-256, via qpdf).
+      - non-PDF files are rejected; business mode is PDF-only.
+    For each PDF, the user selects the client from clients.csv; that client's
+    DOB (DDMMYYYY) is used as the user password. Every protected output is
+    audited and escrowed before the run is reported as successful.
 
 .NOTES
     Run with -STA (WPF requirement); PasswordProtect.cmd does this for you.
@@ -34,7 +30,7 @@ $ErrorActionPreference = 'Stop'
 $script:Here   = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Definition }
 $script:SrcDir = Join-Path $script:Here 'src'
 
-# The encryption engine (Invoke-QPdf.ps1 / Invoke-SevenZip.ps1) and the WPF
+# The encryption engine (Invoke-QPdf.ps1) and the WPF
 # assemblies are loaded inside Invoke-Main rather than here, so that any
 # failure to load them is caught by the entry-point handler and reported to
 # the user instead of silently closing the window.
@@ -64,8 +60,7 @@ function Format-DobPassword {
 function Get-OutputPath {
     <#
     .SYNOPSIS
-        Destination next to the original. PDFs keep their extension;
-        everything else becomes a .7z. Mirrors src/Protect.psm1 naming.
+        Destination next to the original as <stem>_protected.pdf.
     #>
     [CmdletBinding()]
     param(
@@ -77,20 +72,21 @@ function Get-OutputPath {
     $dir  = [System.IO.Path]::GetDirectoryName($InputPath)
     $stem = [IO.Path]::GetFileNameWithoutExtension($InputPath)
     $ext  = [IO.Path]::GetExtension($InputPath)
-    $name = if ($ext -ieq '.pdf') { "$stem$Suffix$ext" } else { "$stem$Suffix.7z" }
+    if ($ext -ine '.pdf') { throw 'Only PDF files are supported.' }
+    $name = "$stem$Suffix$ext"
     return (Join-Path $dir $name)
 }
 
 function Resolve-Settings {
     <#
     .SYNOPSIS
-        Locate qpdf.exe / 7z.exe and read naming options. Probe order:
-          1. bundled bin\ next to this script (the normal, self-contained case)
-          2. paths in config\settings.default.json (enterprise install)
-          3. qpdf / 7z on PATH
+        Locate qpdf.exe and read naming options. Probe order:
+          1. business config in %ProgramData%\CuroPDFProtect\settings.json
+          2. bundled bin\ next to this script
+          3. qpdf on PATH
         Throws a clear, user-facing message if a binary cannot be found.
     .OUTPUTS
-        @{ QpdfPath; SevenZipPath; OutputSuffix; LongPathPrefix; AllowOverwrite }
+        @{ QpdfPath; OutputSuffix; LongPathPrefix; AllowOverwrite }
     #>
     [CmdletBinding()]
     param([string] $BaseDir = $script:Here)
@@ -100,7 +96,7 @@ function Resolve-Settings {
     $longPathPrefix = $true
     $allowOverwrite = $false
     $cfgQpdf        = $null
-    $cfgSeven       = $null
+
 
     $cfgPath = Join-Path (Join-Path $BaseDir 'config') 'settings.default.json'
     if (Test-Path -LiteralPath $cfgPath) {
@@ -110,7 +106,6 @@ function Resolve-Settings {
             if ($null -ne $cfg.long_path_prefix) { $longPathPrefix = [bool]$cfg.long_path_prefix }
             if ($null -ne $cfg.allow_overwrite)  { $allowOverwrite = [bool]$cfg.allow_overwrite }
             if ($cfg.qpdf_path)      { $cfgQpdf  = [Environment]::ExpandEnvironmentVariables([string]$cfg.qpdf_path) }
-            if ($cfg.sevenzip_path)  { $cfgSeven = [Environment]::ExpandEnvironmentVariables([string]$cfg.sevenzip_path) }
         } catch {
             # Malformed config is non-fatal; fall back to bundled bin\.
         }
@@ -118,11 +113,9 @@ function Resolve-Settings {
 
     $binDir = Join-Path $BaseDir 'bin'
     $qpdf  = Resolve-Binary -Name 'qpdf.exe' -BundledPath (Join-Path $binDir 'qpdf.exe') -ConfigPath $cfgQpdf  -CommandName 'qpdf'
-    $seven = Resolve-Binary -Name '7z.exe'   -BundledPath (Join-Path $binDir '7z.exe')   -ConfigPath $cfgSeven -CommandName '7z'
 
     return @{
         QpdfPath       = $qpdf
-        SevenZipPath   = $seven
         OutputSuffix   = $suffix
         LongPathPrefix = $longPathPrefix
         AllowOverwrite = $allowOverwrite
@@ -146,50 +139,17 @@ function Resolve-Binary {
     throw "$Name not found. Expected it at:`n  $BundledPath`nReinstall the tool or place $Name there."
 }
 
-function Invoke-ProtectOne {
-    <#
-    .SYNOPSIS
-        Protect a single file. Returns a friendly per-file result for the
-        summary dialog. Never throws on an encryption failure.
-    .OUTPUTS
-        @{ Path; Success; Message }
-    #>
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)] [string] $Path,
-        [Parameter(Mandatory)] [System.Security.SecureString] $Password,
-        [Parameter(Mandatory)] $Settings
-    )
 
-    $name = Split-Path -Leaf $Path
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        return @{ Path = $Path; Success = $false; Message = "$name - not a file, skipped" }
+function Show-HealthScreen {
+    param([Parameter(Mandatory)]$Health)
+    $lines = @('Curo PDF Protector needs setup before it can protect PDFs.','')
+    foreach ($i in $Health.Issues) {
+        $lines += "[$($i.Component)] $($i.Message)"
+        $lines += "Next step: $($i.NextStep)"
+        $lines += ''
     }
-
-    $out = Get-OutputPath -InputPath $Path -Suffix $Settings.OutputSuffix
-    $ext = [IO.Path]::GetExtension($Path)
-
-    if ($ext -ieq '.pdf') {
-        $res = Protect-Pdf -QpdfPath $Settings.QpdfPath -InputPath $Path -OutputPath $out `
-            -Password $Password -LongPathPrefix:$Settings.LongPathPrefix -AllowOverwrite:$Settings.AllowOverwrite
-    } else {
-        $res = Protect-WithSevenZip -SevenZipPath $Settings.SevenZipPath -InputPath $Path -OutputPath $out `
-            -Password $Password -AllowOverwrite:$Settings.AllowOverwrite
-    }
-
-    if ($res.Success) {
-        return @{ Path = $Path; Success = $true; Message = "$name -> $(Split-Path -Leaf $res.OutputPath)" }
-    }
-
-    $reason = switch ($res.ErrorCode) {
-        'PRE_ENCRYPTED' { 'already password-protected - skipped' }
-        'FILE_LOCKED'   { 'file is open in another program - close it and retry' }
-        default {
-            if ($res.Stderr -match 'exists') { "a $($Settings.OutputSuffix) copy already exists" }
-            else { 'could not protect (engine error)' }
-        }
-    }
-    return @{ Path = $Path; Success = $false; Message = "$name - $reason" }
+    $lines += 'Nothing was protected. Business mode requires healthy config, qpdf, client list, audit logging, and escrow.'
+    [System.Windows.MessageBox]::Show(($lines -join "`n"), 'Curo PDF Protector - setup required', 'OK', 'Warning') | Out-Null
 }
 
 # ---------------------------------------------------------------------------
@@ -211,7 +171,7 @@ function Invoke-Main {
     }
 
     # Preflight: the tool only works with its helper scripts and engine intact.
-    foreach ($req in 'Invoke-QPdf.ps1','Invoke-SevenZip.ps1','Prompt-Drop.ps1','Prompt-Dob.ps1') {
+    foreach ($req in 'Invoke-QPdf.ps1','Prompt-Drop.ps1','Prompt-Password.ps1','Config.psm1','Protect.psm1','Find-Client.ps1') {
         $rp = Join-Path $script:SrcDir $req
         if (-not (Test-Path -LiteralPath $rp)) {
             throw ("Missing required file:`n  $rp`n`nThe program folder looks incomplete. " +
@@ -221,18 +181,27 @@ function Invoke-Main {
 
     # Engine (reused). Dot-sourced here so a load failure is reported, not fatal.
     . (Join-Path $script:SrcDir 'Invoke-QPdf.ps1')
-    . (Join-Path $script:SrcDir 'Invoke-SevenZip.ps1')
+    Import-Module (Join-Path $script:SrcDir 'Config.psm1') -Force -DisableNameChecking
+    Import-Module (Join-Path $script:SrcDir 'Protect.psm1') -Force -DisableNameChecking
 
-    # 1. Resolve binaries up front; clear error if missing.
+    # 1. Business health: refuse closed if audit, escrow, config, qpdf, or clients are unhealthy.
+    $health = Test-CuroHealth
+    if (-not $health.Healthy) {
+        Show-HealthScreen -Health $health | Out-Null
+        return 2
+    }
+    $config = $health.Config
+
+    # 2. Resolve binaries up front; clear error if missing.
     try {
-        $settings = Resolve-Settings
+        $settings = @{ QpdfPath=$config.qpdf_path; OutputSuffix=$config.output_suffix; LongPathPrefix=$config.long_path_prefix; AllowOverwrite=$config.allow_overwrite }
     } catch {
         [System.Windows.MessageBox]::Show($_.Exception.Message, 'Password Protect - setup problem',
             'OK', 'Error') | Out-Null
         return 2
     }
 
-    # 2. Gather files: from args, or via the drop window.
+    # 3. Gather files: from args, or via the drop window.
     $paths = @($InputFiles | Where-Object { $_ })
     if ($paths.Count -eq 0) {
         $paths = @(& (Join-Path $script:SrcDir 'Prompt-Drop.ps1'))
@@ -240,22 +209,32 @@ function Invoke-Main {
     $paths = @($paths | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) })
     if ($paths.Count -eq 0) { return 0 }   # nothing to do / user closed window
 
-    # 3. Ask for the date of birth once for the whole batch.
-    $dob = & (Join-Path $script:SrcDir 'Prompt-Dob.ps1') -FileCount $paths.Count
-    if ($dob.Cancelled -or -not $dob.SecurePassword) { return 0 }
-
-    # 4. Protect each file.
-    $results = @()
-    try {
-        foreach ($p in $paths) {
-            $results += Invoke-ProtectOne -Path $p -Password $dob.SecurePassword -Settings $settings
-        }
-    } finally {
-        if ($dob.SecurePassword) { $dob.SecurePassword.Dispose() }
-        [GC]::Collect()
+    # 4. Load clients and require a client/DOB assignment for every PDF.
+    . (Join-Path $script:SrcDir 'Find-Client.ps1')
+    $clientList = Get-ClientList -Config $config
+    if ($clientList.HardFail) {
+        [System.Windows.MessageBox]::Show($clientList.Warning, 'Curo PDF Protector - client list unavailable', 'OK', 'Error') | Out-Null
+        return 2
     }
 
-    # 5. Summary dialog.
+    # 5. Protect each PDF with audit and escrow. Each row gets its own client picker
+    # so unmatched/ambiguous files cannot be processed without manual resolution.
+    $results = @()
+    foreach ($p in $paths) {
+        $prompt = & (Join-Path $script:SrcDir 'Prompt-Password.ps1') -Config $config -ClientList $clientList -FilePath $p -RequireClientDob
+        if ($prompt.Cancelled) {
+            $results += [pscustomobject]@{ Success=$false; Message="$(Split-Path -Leaf $p) - cancelled before client/DOB assignment" }
+            continue
+        }
+        try {
+            $results += Invoke-ProtectFileCore -Config $config -Path $p -PromptResult $prompt
+        } finally {
+            if ($prompt -and $prompt.SecurePassword) { $prompt.SecurePassword.Dispose() }
+            [GC]::Collect()
+        }
+    }
+
+    # 6. Summary dialog.
     $ok   = @($results | Where-Object { $_.Success })
     $bad  = @($results | Where-Object { -not $_.Success })
     $lines = @()

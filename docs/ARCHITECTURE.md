@@ -26,7 +26,7 @@ Explorer right-click on file.pdf
         │     ├─ type-ahead picker (Find-Client)  →  DOB as SecureString
         │     └─ manual PasswordBox + confirm + complexity check
         │
-        ├─ Invoke-QPdf.ps1 (PDF)   OR   Invoke-SevenZip.ps1 (other)
+        ├─ Invoke-QPdf.ps1 (PDF only)
         │     ├─ long-path prefix on UNC / OneDrive paths
         │     ├─ writes to <out>.tmp, atomic rename on success
         │     └─ returns ErrorCode enum
@@ -54,7 +54,6 @@ Explorer right-click on file.pdf
 │   ├── Prompt-Password.ps1
 │   ├── Find-Client.ps1
 │   ├── Invoke-QPdf.ps1
-│   ├── Invoke-SevenZip.ps1
 │   ├── Write-Escrow.ps1
 │   ├── Send-OutlookAttachment.ps1
 │   ├── Config.psm1
@@ -67,14 +66,13 @@ Explorer right-click on file.pdf
 │   └── Get-AuditSummary.ps1
 ├── bin\
 │   ├── qpdf.exe           (SHA-256 pinned)
-│   ├── 7z.exe             (SHA-256 pinned)
 │   └── HASHES.txt
 └── config\
     └── settings.default.json
 
 \ProgramData\CuroPDFProtect\
 ├── settings.json          (from GPO-supplied path, or default)
-├── escrow.pub             (RSA-4096 public key)
+├── escrow.cer             (RSA-4096 public key)
 ├── audit.log              (JSONL, 7-year retention)
 └── cache\
     └── clients.csv        (local mirror, refreshed on each successful read)
@@ -89,7 +87,7 @@ Explorer right-click on file.pdf
 \\server\deploy$\CuroPDFProtect\
 ├── VERSION
 ├── src\ admin\ bin\ config\    (identical layout to install dir)
-├── escrow.pub
+├── escrow.cer
 └── previous\                   (N-1 payload, for rollback)
 ```
 
@@ -102,7 +100,7 @@ Explorer right-click on file.pdf
 4. For `qpdf --encrypt`, passed as argv (qpdf's only supported channel).
    The process lives for well under a second; argv is only visible to
    processes running as the same user; `%CommandLine%` is never logged.
-5. For `7z`, same — passed as `-p<pw>` argv, never logged.
+5. Non-PDF 7z handling has been removed from v1 business mode.
 6. Escrow wrap: UTF-8 bytes → `RSA-OAEP-SHA256` → base64 in the sidecar.
    Plaintext bytes cleared with `Array.Clear` immediately after wrap.
 7. `SecureString` disposed in a `finally` block; `GC.Collect` called to
@@ -124,7 +122,7 @@ Explorer right-click on file.pdf
   "output_size_bytes": 184221,
   "cipher": "pdf-aes256",
   "pubkey_fingerprint_sha256": "1234...64hex",
-  "wrapped_password_b64": "base64(RSA-OAEP-SHA256(pubkey, utf8(password)))",
+  "wrapped_user_password_b64 / wrapped_owner_password_b64": "base64(RSA-OAEP-SHA256(pubkey, utf8(password)))",
   "client_file_ref": "C-00421",
   "password_source": "dob"
 }
@@ -161,7 +159,7 @@ Finite, documented. Used for alerting and diagnostics:
 | # | Case | Expected |
 |---|---|---|
 | 1 | Normal PDF round-trip (protect → recover) | byte-equal to original |
-| 2 | .docx → 7z round-trip | byte-equal |
+| 2 | .docx input | refused as PDF_ONLY |
 | 3 | Already-encrypted PDF | `PRE_ENCRYPTED`, no prompt shown |
 | 4 | Locked PDF (open handle) | `FILE_LOCKED`, no partial output |
 | 5 | Path > 260 chars | success via `\\?\` prefix |

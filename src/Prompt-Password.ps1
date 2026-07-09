@@ -6,7 +6,7 @@
     Shows a WPF dialog that allows the user to:
       - Type-ahead search for a client in the CSV; selecting a client uses
         their DOB (in DDMMYYYY format) as the password.
-      - OR enter a manual password (with confirm + complexity check).
+      - OR enter a manual password (unless RequireClientDob is set).
     Returns a hashtable:
       @{
         SecurePassword = <SecureString>
@@ -24,7 +24,8 @@ param(
     [Parameter(Mandatory)] $Config,
     [Parameter(Mandatory)] $ClientList,   # from Find-Client.ps1::Get-ClientList
     [Parameter(Mandatory)] [string] $FilePath,
-    [switch] $OfferOutlook
+    [switch] $OfferOutlook,
+    [switch] $RequireClientDob
 )
 
 Add-Type -AssemblyName PresentationFramework
@@ -66,7 +67,7 @@ $xaml = @"
 
     <ListBox Grid.Row="3" Name="ResultsList" Margin="0,4,0,8" MinHeight="100"/>
 
-    <StackPanel Grid.Row="4" Margin="0,0,0,8">
+    <StackPanel Grid.Row="4" Name="ManualPanel" Margin="0,0,0,8">
       <TextBlock Text="Or enter a password manually:"/>
       <PasswordBox Name="ManualPwd"  Height="24" Margin="0,2"/>
       <PasswordBox Name="ManualPwd2" Height="24" Margin="0,2" ToolTip="Confirm"/>
@@ -96,6 +97,7 @@ $WarnBar      = $window.FindName('WarnBar')
 $WarnText     = $window.FindName('WarnText')
 $SearchBox    = $window.FindName('SearchBox')
 $ResultsList  = $window.FindName('ResultsList')
+$ManualPanel  = $window.FindName('ManualPanel')
 $ManualPwd    = $window.FindName('ManualPwd')
 $ManualPwd2   = $window.FindName('ManualPwd2')
 $ManualHint   = $window.FindName('ManualHint')
@@ -110,6 +112,11 @@ $FilePathText.Text = $FilePath
 if ($ClientList.Warning) {
     $WarnBar.Visibility = 'Visible'
     $WarnText.Text = $ClientList.Warning
+}
+
+if ($RequireClientDob) {
+    $ManualPanel.Visibility = 'Collapsed'
+    $ManualHint.Text = 'Business mode: select a client; the client DOB (DDMMYYYY) will be used.'
 }
 
 if (-not $OfferOutlook -or -not $Config.outlook_integration) {
@@ -129,22 +136,40 @@ $script:result = @{
 
 $script:selectedClient = $null
 
-# Wire up type-ahead.
-$SearchBox.Add_TextChanged({
+function Set-ClientMatches {
+    param([object[]] $Matches, [switch] $AutoSelectSingle)
     $ResultsList.Items.Clear()
     $script:selectedClient = $null
-    if ([string]::IsNullOrWhiteSpace($SearchBox.Text)) { return }
-    $matches = & {
-        . "$PSScriptRoot\Find-Client.ps1"
-        Find-Client -ClientList $ClientList -Query $SearchBox.Text
-    }
-    foreach ($m in $matches) {
+    foreach ($m in @($Matches)) {
         $item = New-Object System.Windows.Controls.ListBoxItem
         $item.Content = $m.Display
         $item.Tag = $m
         $ResultsList.Items.Add($item) | Out-Null
     }
+    if ($AutoSelectSingle -and $ResultsList.Items.Count -eq 1) {
+        $ResultsList.SelectedIndex = 0
+        $script:selectedClient = $ResultsList.SelectedItem.Tag
+    }
+}
+
+# Wire up type-ahead.
+$SearchBox.Add_TextChanged({
+    if ([string]::IsNullOrWhiteSpace($SearchBox.Text)) { Set-ClientMatches -Matches @(); return }
+    $matches = & {
+        . "$PSScriptRoot\Find-Client.ps1"
+        Find-Client -ClientList $ClientList -Query $SearchBox.Text
+    }
+    Set-ClientMatches -Matches @($matches)
 })
+
+# Pre-populate from the filename/file_ref where possible. A single match is
+# selected automatically; multiple matches remain unresolved until the user
+# chooses the right client.
+$initialMatches = & {
+    . "$PSScriptRoot\Find-Client.ps1"
+    Find-ClientForFileName -ClientList $ClientList -FilePath $FilePath
+}
+Set-ClientMatches -Matches @($initialMatches) -AutoSelectSingle
 
 $ResultsList.Add_SelectionChanged({
     if ($ResultsList.SelectedItem) {
@@ -190,6 +215,11 @@ $OkBtn.Add_Click({
         $script:result.ClientFileRef  = $script:selectedClient.FileRef
         $script:result.Cancelled = $false
         $window.Close()
+        return
+    }
+
+    if ($RequireClientDob) {
+        [System.Windows.MessageBox]::Show('Select a client before protecting. Business mode requires a client DOB from clients.csv.', 'Client required') | Out-Null
         return
     }
 

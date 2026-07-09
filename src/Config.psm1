@@ -32,12 +32,14 @@ function Get-CuroConfig {
 
     # Expand %EnvVar% tokens in path-like string values.
     $pathKeys = @(
+        'client_lookup_file',
         'client_lookup_cache_path',
+        'escrow_dir',
         'escrow_pubkey_path',
+        'escrow_cert_path',
         'audit_log_path',
         'install_dir',
-        'qpdf_path',
-        'sevenzip_path'
+        'qpdf_path'
     )
     foreach ($k in $pathKeys) {
         if ($cfg.PSObject.Properties[$k] -and $cfg.$k) {
@@ -51,6 +53,7 @@ function Get-CuroConfig {
     Assert-ConfigField $cfg 'dob_password_digits' { param($v) [int]$v -ge 6 -and [int]$v -le 12 }
     Assert-ConfigField $cfg 'manual_password_min_length' { param($v) [int]$v -ge 8 }
     Assert-ConfigField $cfg 'audit_log_retention_days'   { param($v) [int]$v -ge 30 }
+    Assert-ConfigField $cfg 'qpdf_path' { param($v) -not [string]::IsNullOrWhiteSpace([string]$v) }
 
     return $cfg
 }
@@ -70,4 +73,25 @@ function Assert-ConfigField {
     }
 }
 
-Export-ModuleMember -Function Get-CuroConfig
+
+function Test-CuroHealth {
+    [CmdletBinding()]
+    param([string]$Path = $script:ConfigPath)
+    $issues = New-Object System.Collections.Generic.List[object]
+    $cfg = $null
+    try { $cfg = Get-CuroConfig -Path $Path } catch { $issues.Add([pscustomobject]@{ Component='settings.json'; Healthy=$false; Message=$_.Exception.Message; NextStep="Create $Path by running install.ps1 -SourcePath <deploy folder> or copy config\settings.default.json to %ProgramData%\CuroPDFProtect\settings.json and edit the share paths." }) | Out-Null }
+    if ($cfg) {
+        foreach ($check in @(
+            @{Name='qpdf'; Path=$cfg.qpdf_path; Step='Install qpdf.exe or fix qpdf_path in settings.json.'},
+            @{Name='client list'; Path=$cfg.client_lookup_file; Step='Run admin\Publish-Clients.ps1 or fix client_lookup_file.'},
+            @{Name='escrow certificate'; Path=$(if ($cfg.escrow_cert_path) { $cfg.escrow_cert_path } else { $cfg.escrow_pubkey_path }); Step='Deploy the escrow public certificate to ProgramData or fix escrow_cert_path.'}
+        )) { if (-not $check.Path -or -not (Test-Path -LiteralPath $check.Path)) { $issues.Add([pscustomobject]@{ Component=$check.Name; Healthy=$false; Message="Missing or unreachable: $($check.Path)"; NextStep=$check.Step }) | Out-Null } }
+        try { $auditDir = Split-Path $cfg.audit_log_path -Parent; if (-not (Test-Path -LiteralPath $auditDir)) { New-Item -ItemType Directory -Path $auditDir -Force -ErrorAction Stop | Out-Null }; $probe=Join-Path $auditDir ('.health-{0}.tmp' -f [guid]::NewGuid().Guid); [IO.File]::WriteAllText($probe,'ok'); Remove-Item -LiteralPath $probe -Force }
+        catch { $issues.Add([pscustomobject]@{ Component='audit log'; Healthy=$false; Message=$_.Exception.Message; NextStep='Fix audit_log_path permissions or create the configured audit folder.' }) | Out-Null }
+        try { if (-not (Test-Path -LiteralPath $cfg.escrow_dir)) { New-Item -ItemType Directory -Path $cfg.escrow_dir -Force -ErrorAction Stop | Out-Null } }
+        catch { $issues.Add([pscustomobject]@{ Component='escrow directory'; Healthy=$false; Message=$_.Exception.Message; NextStep='Restore access to escrow_dir before protecting PDFs.' }) | Out-Null }
+    }
+    return [pscustomobject]@{ Healthy=($issues.Count -eq 0); Issues=@($issues); Config=$cfg }
+}
+
+Export-ModuleMember -Function Get-CuroConfig, Test-CuroHealth

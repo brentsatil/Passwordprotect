@@ -2,7 +2,7 @@
 <#
     Tests for the standalone PasswordProtect tool. These exercise the pure
     helpers only (DOB formatting, output naming, binary resolution) and never
-    invoke qpdf/7z or any WPF dialog, so they run anywhere Pester runs.
+    invoke qpdf or any WPF dialog, so they run anywhere Pester runs.
 #>
 
 BeforeAll {
@@ -43,9 +43,9 @@ Describe 'Get-OutputPath' {
         Split-Path -Parent $out | Should -Be (Split-Path -Parent $in)
     }
 
-    It 'turns a non-PDF into <stem>_protected.7z' {
+    It 'rejects a non-PDF business input' {
         $in  = Join-Path $TestDrive 'notes.docx'
-        Get-OutputPath -InputPath $in | Split-Path -Leaf | Should -Be 'notes_protected.7z'
+        { Get-OutputPath -InputPath $in } | Should -Throw '*PDF*'
     }
 
     It 'treats an uppercase .PDF extension as a PDF' {
@@ -65,11 +65,8 @@ Describe 'Resolve-Settings' {
         $bin  = Join-Path $base 'bin'
         New-Item -ItemType Directory -Path $bin -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $bin 'qpdf.exe') -Value 'x'
-        Set-Content -LiteralPath (Join-Path $bin '7z.exe')   -Value 'x'
-
         $s = Resolve-Settings -BaseDir $base
         $s.QpdfPath     | Should -Be (Join-Path $bin 'qpdf.exe')
-        $s.SevenZipPath | Should -Be (Join-Path $bin '7z.exe')
         $s.OutputSuffix | Should -Be '_protected'
     }
 
@@ -78,13 +75,11 @@ Describe 'Resolve-Settings' {
         $cfg  = Join-Path $base 'config'
         New-Item -ItemType Directory -Path $cfg -Force | Out-Null
         $fakeQpdf  = Join-Path $TestDrive 'q.exe'; Set-Content -LiteralPath $fakeQpdf  -Value 'x'
-        $fakeSeven = Join-Path $TestDrive 's.exe'; Set-Content -LiteralPath $fakeSeven -Value 'x'
-        @{ output_suffix='_protected'; qpdf_path=$fakeQpdf; sevenzip_path=$fakeSeven } |
+        @{ output_suffix='_protected'; qpdf_path=$fakeQpdf } |
             ConvertTo-Json | Set-Content -LiteralPath (Join-Path $cfg 'settings.default.json') -Encoding UTF8
 
         $s = Resolve-Settings -BaseDir $base
         $s.QpdfPath     | Should -Be $fakeQpdf
-        $s.SevenZipPath | Should -Be $fakeSeven
     }
 
     It 'throws a clear error when a binary cannot be found anywhere' {

@@ -7,26 +7,24 @@ matching Outlook shortcut protects-and-attaches in one step.
 
 Password recovery is guaranteed via RSA key escrow. No password is ever logged.
 
-## Simple drag-and-drop tool (no install needed)
+## Business launcher
 
-If you just want the personal version — open it, drag a file in, type a date of
-birth — use **`PasswordProtect.cmd`**. No GPO, escrow, client CSV, Outlook, or
-audit log; just the encryption.
+Double-click **`PasswordProtect.cmd`** to open the same business protection flow
+used by the Explorer entries. The launcher is PDF-only and refuses to protect
+anything until machine health checks pass for settings, qpdf, clients.csv,
+audit logging, and escrow.
 
-1. Double-click `PasswordProtect.cmd` → a window appears. Drag one or more
-   PDFs/documents onto it. (You can also drag files straight onto the `.cmd`
-   icon to skip the window.)
-2. A popup asks for a **date of birth**. Enter day / month / year; that becomes
-   the password as `DDMMYYYY` (e.g. 12 Mar 1970 → `12031970`). One date applies
-   to every file in the drop.
-3. A protected copy lands **in the same folder** as each original (the original
-   is kept):
-   - **PDF** → `name_protected.pdf`, opens in any viewer with the password.
-   - **Anything else** → `name_protected.7z`, an AES-256 archive you open with
-     7-Zip using the password.
+1. Double-click `PasswordProtect.cmd` or drag one or more PDFs onto it.
+2. For each PDF, select the client from `clients.csv`; the client's DOB is used
+   as the password in `DDMMYYYY` format.
+3. A protected copy lands in the same folder as the original as
+   `name_protected.pdf`; the original is kept unless explicitly deleted by an
+   admin workflow.
+4. Every successful output has an audit event and an escrow sidecar with wrapped
+   user and owner passwords.
 
-`qpdf.exe` and `7z.exe` are bundled in `bin\`, so it works on any Windows 10/11
-machine with no setup. Requires PowerShell 5.1 (built into Windows).
+`qpdf.exe` is bundled in `bin\`. Requires Windows 10/11 and Windows
+PowerShell 5.1 (built into Windows).
 
 ### If the window closes instantly / "crashes"
 
@@ -62,15 +60,15 @@ The launcher no longer disappears silently on failure:
 
 - **PDF path:** real PDF AES-256 encryption via `qpdf`. Output opens in any
   viewer (Adobe, Edge, Preview) with the password.
-- **Non-PDF path:** AES-256 `.7z` archive with encrypted headers via `7z`.
+- **Non-PDF files:** refused in v1 business mode.
 - **Client picker** with type-ahead over `clients.csv`, published from the
   master client spreadsheet. Selecting a client auto-fills their DOB as
   password in `DDMMYYYY` format (no separators).
-- **Manual fallback** when the client isn't in the CSV — never a hard block.
-- **Escrow** — each file's password is RSA-OAEP-wrapped under the escrow
+- **Manual resolution** for ambiguous/unmatched files by selecting the correct client from `clients.csv`.
+- **Escrow** — each file's password is certificate-wrapped under the escrow
   public key and written to a per-file sidecar on
   `\\server\data\PDFProtect-Escrow\YYYY\MM\`. Admin recovers via
-  `Recover-File.ps1` + the private key on the safe's USB.
+  `Recover-File.ps1` + the private PFX on the safe's USB.
 - **Audit log** — JSONL at `%ProgramData%\PasswordProtect\audit.log`,
   7-year retention (Corps Act s.988A / RG 104).
 - **Outlook integration** — Protect-and-attach / -reply / -forward via
@@ -86,8 +84,7 @@ The launcher no longer disappears silently on failure:
 3. **Hard-to-break maintenance.** One machine-wide install path. One config
    file. One diagnostics script that produces the exact artefact a support
    ticket needs. Pester test matrix runs weekly on a pilot machine.
-4. **No bespoke crypto.** `qpdf` and `7z` do the encryption; this tool is
-   the glue.
+4. **No bespoke crypto.** `qpdf` does the PDF encryption; Windows certificate APIs wrap escrow secrets.
 
 ## Deployment
 
@@ -95,8 +92,7 @@ The launcher no longer disappears silently on failure:
   require PS 7).
 - Channel: GPO startup script per-machine. Install path
   `C:\Program Files\CuroPDFProtect\`.
-- Dependencies: `qpdf.exe` (Apache-2.0) and `7z.exe` (LGPL) bundled with
-  pinned SHA-256 hashes, verified at install.
+- Dependencies: `qpdf.exe` (Apache-2.0) bundled with pinned SHA-256 hashes, verified at install.
 - Shell integration: `HKLM\Software\Classes\*\shell\CuroProtectWithPassword`
   (per-machine — new staff don't need per-user setup).
 - Staged rollout via AD security groups: `CuroPDFProtect-Ring0` (3 machines,
@@ -129,7 +125,6 @@ src\
   Prompt-Password.ps1           WPF dialog + SecureString
   Find-Client.ps1               CSV lookup + picker data
   Invoke-QPdf.ps1               qpdf wrapper (stdin password)
-  Invoke-SevenZip.ps1           7z wrapper (stdin password)
   Write-Escrow.ps1              per-file sidecar writer
   Write-AuditLog.ps1            JSONL audit log
   Send-OutlookAttachment.ps1    Outlook COM + fallback
@@ -138,7 +133,7 @@ src\
 admin\
   Publish-Clients.ps1           atomic CSV publish from master XLSX
   Recover-File.ps1              escrow recovery
-  Rotate-EscrowKey.ps1          keypair rotation
+  Rotate-EscrowKey.ps1          recovery certificate rotation
   Get-PDFProtectDiagnostics.ps1 support-ticket artefact
   Get-AuditSummary.ps1          weekly report
 install.ps1                     GPO-invoked installer

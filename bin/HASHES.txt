@@ -1,11 +1,10 @@
 # SHA-256 pins for bundled dependencies.
 # Format (sha256sum-compatible):  <hex> *<filename>
-# qpdf 11.9.1 (msvc64) from github.com/qpdf/qpdf; 7z.exe is 7za.exe from github.com/develar/7zip-bin.
+# qpdf 11.9.1 (msvc64) from github.com/qpdf/qpdf.
 #
-# install.ps1 enforces qpdf.exe and 7z.exe; the remaining lines pin the qpdf runtime DLLs.
+# install.ps1 enforces qpdf.exe; the remaining lines pin the qpdf runtime DLLs.
 
 c14dd98df81c1bdfaaf16bf9f8804eb88e4c643ee55a7e5fdc21454dd88cab54 *qpdf.exe
-b0cfdeaf429f5cc53f85123dd8f5a5feb92c19d31aa34df257edf9a26be05f95 *7z.exe
 6dc70b3a0b96e3e7c5defe51cf32c7b29ea2f73185335d9076bea348ea6837ed *qpdf29.dll
 4f500992a53c41a0ba44a11c33c481d8763505a7453be12d85107856ab8fb332 *concrt140.dll
 a4c2229bdc2a2a630acdc095b4d86008e5c3e3bc7773174354f3da4f5beb9cde *msvcp140.dll

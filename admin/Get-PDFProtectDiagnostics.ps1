@@ -49,8 +49,7 @@ $report += "----------------------------------------------------------"
 
 # Dependencies
 foreach ($dep in @(
-    @{ Name='qpdf'; Path=$config.qpdf_path },
-    @{ Name='7z';   Path=$config.sevenzip_path })) {
+    @{ Name='qpdf'; Path=$config.qpdf_path })) {
     if (Test-Path -LiteralPath $dep.Path) {
         $h = (Get-FileHash -Algorithm SHA256 -LiteralPath $dep.Path).Hash
         $report += "$($dep.Name.PadRight(18)): OK   SHA256=$h"
@@ -85,11 +84,12 @@ if (Test-Path -LiteralPath $escDir) {
 } else {
     $report += "Escrow share:       UNREACHABLE  ($escDir)"
 }
-$pubPath = [Environment]::ExpandEnvironmentVariables($config.escrow_pubkey_path)
+$pubPath = if ($config.escrow_cert_path) { $config.escrow_cert_path } else { $config.escrow_pubkey_path }
+$pubPath = [Environment]::ExpandEnvironmentVariables($pubPath)
 if (Test-Path -LiteralPath $pubPath) {
-    $report += "Escrow pubkey:      OK  ($pubPath)"
+    $report += "Escrow cert:        OK  ($pubPath)"
 } else {
-    $report += "Escrow pubkey:      MISSING  ($pubPath)"
+    $report += "Escrow cert:        MISSING  ($pubPath)"
 }
 $report += "----------------------------------------------------------"
 

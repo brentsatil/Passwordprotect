@@ -11,7 +11,7 @@ machine and escalate to Brent or Ian with the report.
 2. Review the report top-to-bottom. Most problems present as one of:
    - `Config load: FAIL` → `install.ps1` was never run, or settings.json
      was hand-edited. Re-run `install.ps1` from the deploy share.
-   - `qpdf: MISSING` or `7z: MISSING` → deploy share replication didn't
+   - `qpdf: MISSING` → deploy share replication didn't
      land. Copy `bin\` from `\\server\deploy$\CuroPDFProtect\bin` to the
      local install dir.
    - `Client CSV primary: UNREACHABLE` → network or share permission

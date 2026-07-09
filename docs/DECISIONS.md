@@ -54,7 +54,7 @@ than 5 minutes of waiting.
 
 ## 6. Output and original file
 
-**Decision:** `<stem>_protected.pdf` (or `.7z`) created alongside the
+**Decision:** `<stem>_protected.pdf` created alongside the
 original. Default: do NOT overwrite existing `_protected` files, do NOT
 delete the original. Both are opt-in checkboxes in the prompt.
 
@@ -66,7 +66,7 @@ this check (always 8 digits by convention).
 
 ## 8. Dependencies
 
-**Decision:** Bundle `qpdf.exe` (Apache-2.0) and `7z.exe` (LGPL) with the
+**Decision:** Bundle `qpdf.exe` (Apache-2.0) with the
 installer. Pin SHA-256 hashes in `bin\HASHES.txt`; installer refuses to
 proceed on mismatch. Quarterly review for CVE updates.
 
