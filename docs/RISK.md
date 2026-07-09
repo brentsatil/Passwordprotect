@@ -43,7 +43,7 @@ Passwords can leak via:
 **Mitigation (all in scope for v1)**
 
 - WPF `PasswordBox` → `SecureString` only.
-- Pass the password to `qpdf` / `7z` via **stdin** or an ephemeral env var,
+- Pass the password to `qpdf` via **stdin** or an ephemeral env var,
   never as an argument.
 - Disable PowerShell history for the protect script
   (`Set-PSReadLineOption -HistorySaveStyle SaveNothing` within the script's
@@ -55,7 +55,7 @@ Passwords can leak via:
 
 ## 3. Original plaintext left on disk
 
-Creating `secret.pdf.7z` next to `secret.pdf` and deleting `secret.pdf`
+Creating `secret_protected.pdf` next to `secret.pdf` and deleting `secret.pdf`
 with `Remove-Item` leaves the plaintext recoverable by forensic tools.
 On SSDs with TRIM the problem is partially mitigated but not eliminated.
 
@@ -72,7 +72,7 @@ On SSDs with TRIM the problem is partially mitigated but not eliminated.
 
 ## 4. Weak user-chosen passwords
 
-PDF user-passwords and 7z passwords are both offline-crackable. A 6-char
+PDF user-passwords are both offline-crackable. A 6-char
 password falls to a GPU rig in seconds.
 
 **Mitigation**
@@ -87,26 +87,22 @@ password falls to a GPU rig in seconds.
 
 ---
 
-## 5. ZIP encryption footguns
+## 5. Non-PDF archive footguns
 
-Default ZIP uses ZipCrypto, which is broken (known-plaintext attack —
-see Biham & Kocher, 1994). Anything that says "password-protected zip"
-without specifying AES-256 is suspect.
+Default ZIP uses ZipCrypto, and archive password handling weakens the PDF-only
+security and recovery guarantees.
 
 **Mitigation**
 
-- Use `.7z` format (`-t7z`) with `-mhe=on` (encrypt filenames too) and
-  AES-256 (7-Zip's default for 7z).
-- If a user specifically needs `.zip` for compatibility, use
-  `-tzip -mem=AES256` and document the compatibility caveat (stock
-  Windows Explorer cannot open AES-encrypted zips; the recipient will
-  need 7-Zip).
+- v1 business mode refuses non-PDF inputs.
+- If non-PDF delivery is ever required, design and threat-model it as a
+  separate workflow instead of silently falling back to archives.
 
 ---
 
 ## 6. Dependency supply chain
 
-`qpdf.exe` and `7z.exe` are bundled. A malicious or outdated binary
+`qpdf.exe` is bundled. A malicious or outdated binary
 compromises every file the tool touches.
 
 **Mitigation**
@@ -196,7 +192,7 @@ revocable, recipient-authenticated protection.
 Every deployed tool generates tickets. Expect:
 
 - "I forgot the password."
-- "The recipient can't open the `.7z`."
+- "A non-PDF file was selected."
 - "Windows says this file is unsafe."
 
 **Mitigation**

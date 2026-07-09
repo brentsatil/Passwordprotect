@@ -79,14 +79,17 @@ if ($candidates.Count -gt 1) {
 
 $entry = Get-Content $candidates[0].FullName -Raw | ConvertFrom-Json
 
-$rsa = [System.Security.Cryptography.RSA]::Create()
-$rsa.ImportFromPem((Get-Content -LiteralPath $PrivateKeyPath -Raw))
+$cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($PrivateKeyPath, '', [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable)
 try {
-    $wrapped = [Convert]::FromBase64String($entry.wrapped_password_b64)
-    $plainBytes = $rsa.Decrypt($wrapped, [System.Security.Cryptography.RSAEncryptionPadding]::OaepSHA256)
+    if (-not $cert.HasPrivateKey) { throw 'Recovery certificate does not contain a private key.' }
+    $rsa = $cert.PrivateKey
+    $wrappedField = if ($entry.wrapped_user_password_b64) { $entry.wrapped_user_password_b64 } else { $entry.wrapped_password_b64 }
+    $wrapped = [Convert]::FromBase64String($wrappedField)
+    if ($rsa -is [System.Security.Cryptography.RSACryptoServiceProvider]) { $plainBytes = $rsa.Decrypt($wrapped, $true) }
+    else { $plainBytes = $rsa.Decrypt($wrapped, [System.Security.Cryptography.RSAEncryptionPadding]::OaepSHA1) }
     $password = [System.Text.Encoding]::UTF8.GetString($plainBytes)
 } finally {
-    $rsa.Dispose()
+    if ($cert) { $cert.Dispose() }
 }
 
 # Write to clipboard - requires a STA host. Avoid writing to console.

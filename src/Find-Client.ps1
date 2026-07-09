@@ -160,3 +160,42 @@ function Find-Client {
         ($_.FileRef -and $_.FileRef.ToLowerInvariant().Contains($q))
     } | Select-Object -First 50
 }
+
+
+function ConvertTo-ClientMatchKey {
+    param([string] $Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) { return '' }
+    return (($Value.ToLowerInvariant() -replace '[^a-z0-9]', ''))
+}
+
+function Find-ClientForFileName {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] $ClientList,
+        [Parameter(Mandatory)] [string] $FilePath
+    )
+
+    $fileName = [IO.Path]::GetFileNameWithoutExtension($FilePath)
+    $fileKey = ConvertTo-ClientMatchKey $fileName
+    if (-not $fileKey) { return @() }
+
+    $matches = New-Object System.Collections.Generic.List[object]
+    foreach ($c in $ClientList.Clients) {
+        $refKey = ConvertTo-ClientMatchKey $c.FileRef
+        $nameKey = ConvertTo-ClientMatchKey $c.Name
+        $hit = $false
+        if ($refKey -and $fileKey.Contains($refKey)) { $hit = $true }
+        elseif ($nameKey -and $fileKey.Contains($nameKey)) { $hit = $true }
+        else {
+            $parts = @($c.Name -split '[^A-Za-z0-9]+' | Where-Object { $_.Length -ge 3 } | ForEach-Object { ConvertTo-ClientMatchKey $_ })
+            if ($parts.Count -gt 0) {
+                $found = 0
+                foreach ($part in $parts | Select-Object -Unique) { if ($fileKey.Contains($part)) { $found++ } }
+                if ($found -ge [Math]::Min(2, $parts.Count)) { $hit = $true }
+                elseif (($parts | Where-Object { $_.Length -ge 4 -and $fileKey.Contains($_) } | Select-Object -First 1)) { $hit = $true }
+            }
+        }
+        if ($hit) { $matches.Add($c) | Out-Null }
+    }
+    return @($matches | Select-Object -First 50)
+}

@@ -1,7 +1,7 @@
 name: windows-ci
 
 # Runs the standalone password-protect tool on a REAL Windows host so the
-# scripts and the bundled qpdf.exe / 7z.exe are actually executed — the kind of
+# scripts and the bundled qpdf.exe is actually executed — the kind of
 # verification that cannot happen in a Linux dev container. WPF dialogs need an
 # interactive desktop and are not launched here; everything else is exercised.
 
@@ -44,8 +44,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           . .\src\Invoke-QPdf.ps1
-          . .\src\Invoke-SevenZip.ps1
-          foreach ($fn in 'Protect-Pdf','Protect-WithSevenZip') {
+          foreach ($fn in 'Protect-Pdf') {
             if (-not (Get-Command $fn -ErrorAction SilentlyContinue)) { throw "$fn not defined" }
           }
           # Dot-sourcing sets InvocationName to '.', so the guarded entry point
@@ -86,20 +85,16 @@ jobs:
       - name: Smoke-test bundled binaries (real encryption round-trips)
         run: |
           # 'Continue' (not 'Stop') so that a native tool writing to stderr -- which
-          # 7z/qpdf do on the INTENTIONAL wrong-password checks below -- is not
+          # qpdf does on the INTENTIONAL wrong-password checks below -- is not
           # escalated into a NativeCommandError. Every assertion still fails the
           # step explicitly via `throw` on a bad $LASTEXITCODE / result.
           $ErrorActionPreference = 'Continue'
           . .\src\Invoke-QPdf.ps1
-          . .\src\Invoke-SevenZip.ps1
-
           $qpdf  = (Resolve-Path .\bin\qpdf.exe).Path
-          $seven = (Resolve-Path .\bin\7z.exe).Path
 
           # --- the binaries must launch (proves their runtime DLLs are intact) ---
           & $qpdf --version
           if ($LASTEXITCODE -ne 0) { throw "qpdf --version exited $LASTEXITCODE" }
-          (& $seven i) | Select-Object -First 2 | ForEach-Object { Write-Host $_ }
 
           # --- shared password (DOB) as a SecureString, exactly like the tool ---
           $pw = '01031970'
@@ -109,19 +104,6 @@ jobs:
 
           $work = Join-Path $env:RUNNER_TEMP 'pp-smoke'
           New-Item -ItemType Directory -Force -Path $work | Out-Null
-
-          # ============ 7z round-trip (non-PDF path) ============
-          $txt    = Join-Path $work 'notes.txt'
-          'hello secret' | Set-Content -LiteralPath $txt -Encoding UTF8
-          $txtOut = Join-Path $work 'notes_protected.7z'
-          $r7 = Protect-WithSevenZip -SevenZipPath $seven -InputPath $txt -OutputPath $txtOut -Password $ss
-          if (-not $r7.Success)       { throw "7z protect failed: $($r7.ErrorCode) $($r7.Stderr)" }
-          if (-not (Test-Path $txtOut)) { throw "7z output not created" }
-          & $seven t "-p$pw" $txtOut | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw "7z rejected the CORRECT password ($LASTEXITCODE)" }
-          & $seven t "-pWRONGPASS" $txtOut 2>&1 | Out-Null
-          if ($LASTEXITCODE -eq 0) { throw "7z accepted a WRONG password (header encryption off?)" }
-          Write-Host "7z round-trip OK -> $txtOut"
 
           # ============ PDF round-trip (PDF path) ============
           # Hand-rolled minimal PDF with no xref; qpdf rebuilds a clean one.
@@ -180,10 +162,9 @@ jobs:
           # passed, so exit cleanly.
           exit 0
 
-      # Legacy enterprise tool (CSV client lookup + RSA escrow). These predate
+      # Legacy enterprise tool (CSV client lookup + certificate escrow). These predate
       # the standalone drag-and-drop tool and have known issues on Windows
-      # PowerShell 5.1 (e.g. escrow uses .NET 5+ PEM APIs absent from 5.1, and
-      # some DOB tests are stale vs the DDMMYYYY-only change). Informational
+      # PowerShell 5.1 (kept non-blocking while target-machine integration is expanded). Informational
       # only -- they do NOT gate the standalone tool.
       - name: Legacy enterprise tests (informational, non-blocking)
         continue-on-error: true

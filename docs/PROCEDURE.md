@@ -21,10 +21,7 @@ produced or transmitted by Curo Financial Services.
 
 ## Standard
 
-1. **Cipher.** All protected PDFs use AES-256 (via `qpdf`). All protected
-   non-PDF files are placed in a `.7z` archive with AES-256 and encrypted
-   headers (via `7-Zip`). Legacy ciphers (RC4, 40-bit, ZipCrypto) are not
-   used.
+1. **Cipher.** All protected PDFs use AES-256 (via `qpdf`). Non-PDF files are outside the v1 business workflow and are refused. Legacy ciphers (RC4, 40-bit, ZipCrypto) are not used.
 2. **Password convention.** Client documents are protected with the client's
    date of birth in `DDMMYYYY` format (no separators, zero-padded). Example:
    a client born 12 March 1970 receives a document protected with `12031970`.
@@ -35,8 +32,8 @@ produced or transmitted by Curo Financial Services.
    (e.g. internal templates, marketing packs), a manually entered password
    of at least 10 characters across 3 character classes is used instead.
 5. **Escrow.** Every protected file's password is wrapped with the Curo
-   RSA escrow public key and stored as a per-file sidecar on the file
-   server. The private key is held on a USB in the office safe, with a
+   escrow public certificate and stored as a per-file sidecar on the file
+   server. The recovery PFX is held on a USB in the office safe, with a
    second copy at Ian's home safe. Recovery is performed only by Brent or
    Ian, via `admin\Recover-File.ps1`, and is audit-logged.
 6. **Audit retention.** The tool's audit log is retained for seven (7) years

@@ -29,7 +29,7 @@ $xaml = @"
       <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
         <TextBlock Text="Drag PDF or document files here" FontSize="16" FontWeight="Bold"
                    HorizontalAlignment="Center" Foreground="#2B5797"/>
-        <TextBlock Text="PDFs become password-protected PDFs; other files become encrypted .7z archives."
+        <TextBlock Text="PDFs become password-protected PDFs; non-PDF files are not accepted in business mode."
                    TextWrapping="Wrap" TextAlignment="Center" Foreground="#666" Margin="0,8,0,0"/>
         <TextBlock Text="You'll be asked for a date of birth to use as the password."
                    TextWrapping="Wrap" TextAlignment="Center" Foreground="#666" Margin="0,4,0,0"/>

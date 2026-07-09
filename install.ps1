@@ -13,10 +13,10 @@
     Actions:
       1. Compare version.txt on deploy share vs local install - skip if current.
       2. Copy src\, admin\, bin\, config\ into C:\Program Files\CuroPDFProtect\.
-      3. Verify SHA-256 of bundled qpdf.exe and 7z.exe against pinned hashes.
+      3. Verify SHA-256 of bundled qpdf.exe against pinned hashes.
       4. Write C:\ProgramData\CuroPDFProtect\settings.json (from network config
          if supplied, otherwise from config\settings.default.json).
-      5. Fetch escrow.pub from the share and place in ProgramData.
+      5. Fetch escrow.cer from the share and place in ProgramData.
       6. Register HKLM context-menu entries.
       7. Create and ACL the audit log directory.
       8. Record version.txt.
@@ -70,7 +70,7 @@ if (Test-Path $hashesPath) {
             $expected[$Matches[2].Trim().ToLowerInvariant()] = $Matches[1].ToLowerInvariant()
         }
     }
-    foreach ($bin in 'qpdf.exe','7z.exe') {
+    foreach ($bin in 'qpdf.exe') {
         $p = Join-Path $InstallDir "bin\$bin"
         $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $p).Hash.ToLowerInvariant()
         $exp = $expected[$bin.ToLowerInvariant()]
@@ -95,13 +95,13 @@ if ($NetworkConfigPath -and (Test-Path $NetworkConfigPath)) {
 }
 
 # --- Escrow pubkey -----------------------------------------------------------
-$pubSrc = Join-Path $SourcePath 'escrow.pub'
-$pubDst = Join-Path $programData 'escrow.pub'
+$pubSrc = Join-Path $SourcePath 'escrow.cer'
+$pubDst = Join-Path $programData 'escrow.cer'
 if (Test-Path $pubSrc) {
     Copy-Item -LiteralPath $pubSrc -Destination $pubDst -Force
-    Write-Log "escrow.pub deployed"
+    Write-Log "escrow.cer deployed"
 } else {
-    Write-Warning "No escrow.pub on deploy share - Rotate-EscrowKey.ps1 has not been run."
+    Write-Warning "No escrow.cer on deploy share - Rotate-EscrowKey.ps1 has not been run."
 }
 
 # --- ACL ProgramData ---------------------------------------------------------

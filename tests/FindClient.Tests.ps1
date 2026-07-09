@@ -76,3 +76,27 @@ Describe 'Find-Client picker matches' {
         (Find-Client -ClientList $script:list -Query '').Count | Should -Be 0
     }
 }
+
+Describe 'Find-ClientForFileName bulk matching' {
+    BeforeAll {
+        $script:bulkList = [pscustomobject]@{
+            Clients = @(
+                [pscustomobject]@{ Name='Smith, John';   Dob='12031970'; FileRef='C-00101'; Display='Smith, John  -  C-00101' }
+                [pscustomobject]@{ Name='Smith, Jane';   Dob='22061985'; FileRef='C-00999'; Display='Smith, Jane  -  C-00999' }
+                [pscustomobject]@{ Name="O'Brien, Mary"; Dob='01011990'; FileRef='C-00502'; Display="O'Brien, Mary  -  C-00502" }
+            )
+        }
+    }
+
+    It 'matches a file_ref embedded in a filename' {
+        (Find-ClientForFileName -ClientList $script:bulkList -FilePath 'C:\tmp\SOA_C-00502_final.pdf').Count | Should -Be 1
+    }
+
+    It 'matches client name tokens in a filename' {
+        (Find-ClientForFileName -ClientList $script:bulkList -FilePath 'C:\tmp\John_Smith_review.pdf').Count | Should -Be 1
+    }
+
+    It 'returns multiple candidates for ambiguous family-name filenames' {
+        (Find-ClientForFileName -ClientList $script:bulkList -FilePath 'C:\tmp\Smith_report.pdf').Count | Should -Be 2
+    }
+}

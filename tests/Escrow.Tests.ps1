@@ -14,17 +14,18 @@ BeforeAll {
     $script:outPath = Join-Path $script:tmp 'fake_protected.pdf'
     Set-Content -LiteralPath $script:outPath -Value 'not a real pdf, just bytes'
 
-    # Ephemeral keypair.
-    $rsa = [System.Security.Cryptography.RSA]::Create(2048)
-    $script:pubPath  = Join-Path $script:tmp 'escrow.pub'
-    $script:privPath = Join-Path $script:tmp 'escrow.key'
-    Set-Content -LiteralPath $script:pubPath  -Value ($rsa.ExportSubjectPublicKeyInfoPem()) -Encoding UTF8
-    Set-Content -LiteralPath $script:privPath -Value ($rsa.ExportPkcs8PrivateKeyPem())      -Encoding UTF8
-    $rsa.Dispose()
+    # Ephemeral certificate (public .cer + private .pfx), compatible with Windows PowerShell 5.1.
+    $script:pubPath  = Join-Path $script:tmp 'escrow.cer'
+    $script:privPath = Join-Path $script:tmp 'escrow.pfx'
+    $script:pfxPassword = ConvertTo-SecureString -String 'test-pfx-password' -AsPlainText -Force
+    $cert = New-SelfSignedCertificate -Subject 'CN=Curo Escrow Test' -KeyAlgorithm RSA -KeyLength 2048 -KeyExportPolicy Exportable -KeyUsage KeyEncipherment,DataEncipherment -CertStoreLocation 'Cert:\CurrentUser\My'
+    Export-Certificate -Cert $cert -FilePath $script:pubPath -Force | Out-Null
+    Export-PfxCertificate -Cert $cert -FilePath $script:privPath -Password $script:pfxPassword | Out-Null
+    Remove-Item -LiteralPath ("Cert:\CurrentUser\My\$($cert.Thumbprint)") -Force -ErrorAction SilentlyContinue
 
     $script:cfg = [pscustomobject]@{
         escrow_dir = Join-Path $script:tmp 'escrow'
-        escrow_pubkey_path = $script:pubPath
+        escrow_cert_path = $script:pubPath
     }
 }
 
@@ -44,7 +45,8 @@ Describe 'Escrow wrap + recover round-trip' {
             -Cipher 'pdf-aes256' `
             -PasswordSource 'dob' `
             -ClientFileRef 'C-00421' `
-            -Password $ss
+            -UserPassword $ss `
+            -OwnerPassword $ss
 
         $sidecar.SidecarPath | Should -Exist
 
@@ -55,14 +57,11 @@ Describe 'Escrow wrap + recover round-trip' {
         $entry.pubkey_fingerprint_sha256.Length | Should -Be 64
 
         # Recover.
-        $rsa = [System.Security.Cryptography.RSA]::Create()
-        $rsa.ImportFromPem((Get-Content $script:privPath -Raw))
+$cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($script:privPath, 'test-pfx-password')
         try {
-            $plainBytes = $rsa.Decrypt(
-                [Convert]::FromBase64String($entry.wrapped_password_b64),
-                [System.Security.Cryptography.RSAEncryptionPadding]::OaepSHA256)
+            $plainBytes = $cert.PrivateKey.Decrypt([Convert]::FromBase64String($entry.wrapped_user_password_b64), $true)
             $recovered = [System.Text.Encoding]::UTF8.GetString($plainBytes)
-        } finally { $rsa.Dispose() }
+        } finally { $cert.Dispose() }
 
         $recovered | Should -Be '12031970'
     }
@@ -70,7 +69,7 @@ Describe 'Escrow wrap + recover round-trip' {
     It 'refuses when escrow dir is unreachable' {
         $badCfg = [pscustomobject]@{
             escrow_dir = '\\does-not-exist\nope'
-            escrow_pubkey_path = $script:pubPath
+            escrow_cert_path = $script:pubPath
         }
         $ss = New-Object System.Security.SecureString
         foreach ($c in 'x'.ToCharArray()) { $ss.AppendChar($c) }

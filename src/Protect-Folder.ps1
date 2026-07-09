@@ -7,8 +7,7 @@
     folders. Shows ONE prompt, then applies the same password to each file
     by calling Invoke-ProtectFileCore in-process (so it does NOT hit the
     `exit` calls in Protect-File.ps1 - those would terminate the whole
-    batch). Non-recursive by default. Skips already-produced _protected
-    files and .escrow / .json sidecars.
+    batch). Non-recursive by default. PDF-only; skips already-produced _protected files.
 #>
 
 [CmdletBinding()]
@@ -40,11 +39,7 @@ $prompt = & $promptScript -Config $config -ClientList $clientList -FilePath "$Pa
 if ($prompt.Cancelled) { exit 0 }
 
 $files = Get-ChildItem -LiteralPath $Path -File -Recurse:$Recursive |
-    Where-Object {
-        $_.BaseName -notlike "*$($config.output_suffix)" -and
-        $_.Extension -notin @('.escrow','.json') -and
-        -not ($_.Name -like "*.escrow.json")
-    }
+    Where-Object { $_.Extension -ieq '.pdf' -and $_.BaseName -notlike "*$($config.output_suffix)" }
 
 $ok = 0; $fail = 0; $firstError = $null
 
