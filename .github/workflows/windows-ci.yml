@@ -119,52 +119,6 @@ jobs:
           & $qpdf --version
           if ($LASTEXITCODE -ne 0) { throw "qpdf --version exited $LASTEXITCODE" }
 
-          # --- TEMP DIAGNOSTIC: try several ways to feed encrypt args to the
-          # real binary and report which one works (removed once Invoke-QPdf
-          # matches it). ---
-          $dwork = Join-Path $env:RUNNER_TEMP 'qpdf-arg-probe'
-          New-Item -ItemType Directory -Force -Path $dwork | Out-Null
-          $dsrc = Join-Path $dwork 'src.pdf'
-          & $qpdf --empty --pages . -- $dsrc 2>&1 | Out-Null   # tiny valid PDF
-          if (-not (Test-Path $dsrc)) { @('%PDF-1.4','trailer<</Root 1 0 R>>','%%EOF') | Set-Content $dsrc -Encoding ascii; & $qpdf $dsrc "$dsrc.n" 2>&1 | Out-Null; Copy-Item "$dsrc.n" $dsrc -Force -ErrorAction SilentlyContinue }
-          $u='01031970'; $o='AbC/dEf+ghI='
-          function Probe($label, $sb) {
-            $out = Join-Path $dwork ("out-{0}.pdf" -f $label)
-            try { $rc = & $sb $out } catch { $rc = "EXC:$($_.Exception.Message)" }
-            Write-Host ("PROBE {0}: exit={1} encrypted={2}" -f $label, $LASTEXITCODE, (Test-Path $out))
-          }
-          # A: @- stdin, flag form (current code)
-          Probe 'stdin-flag' {
-            param($out)
-            $af = @('--encrypt',"--user-password=$u","--owner-password=$o",'--bits=256','--',$dsrc,$out) -join "`n"
-            $pi = New-Object System.Diagnostics.ProcessStartInfo
-            $pi.FileName=$qpdf; $pi.Arguments='@-'; $pi.UseShellExecute=$false
-            $pi.RedirectStandardInput=$true; $pi.RedirectStandardError=$true; $pi.RedirectStandardOutput=$true
-            $p=[System.Diagnostics.Process]::Start($pi); $p.StandardInput.Write($af); $p.StandardInput.Close()
-            $e=$p.StandardError.ReadToEnd(); [void]$p.StandardOutput.ReadToEnd(); $p.WaitForExit()
-            Write-Host ("  stdin-flag stderr: {0}" -f ($e -replace $o,'<owner>'))
-          }
-          # B: @tempfile, flag form
-          Probe 'file-flag' {
-            param($out)
-            $af = Join-Path $dwork 'args-flag.txt'
-            @('--encrypt',"--user-password=$u","--owner-password=$o",'--bits=256','--',$dsrc,$out) | Set-Content -LiteralPath $af -Encoding ascii
-            & $qpdf "@$af" 2>&1 | Out-Null
-          }
-          # C: direct args, flag form
-          Probe 'direct-flag' {
-            param($out)
-            & $qpdf --encrypt "--user-password=$u" "--owner-password=$o" --bits=256 -- $dsrc $out 2>&1 | Out-Null
-          }
-          # D: @tempfile, positional form
-          Probe 'file-positional' {
-            param($out)
-            $af = Join-Path $dwork 'args-pos.txt'
-            @('--encrypt',$u,$o,'256','--',$dsrc,$out) | Set-Content -LiteralPath $af -Encoding ascii
-            & $qpdf "@$af" 2>&1 | Out-Null
-          }
-          Write-Host "===== end arg probes ====="
-
           # --- shared password (DOB) as a SecureString, exactly like the tool ---
           $pw = '01031970'
           $ss = New-Object System.Security.SecureString

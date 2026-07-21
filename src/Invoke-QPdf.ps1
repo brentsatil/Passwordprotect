@@ -78,13 +78,10 @@ function Protect-Pdf {
         $userPlain = ConvertFrom-SecureStringToPlain $Password
         if (-not $ownerPlain) { $ownerPlain = ConvertFrom-SecureStringToPlain $OwnerPassword }
         # Flag form (--user-password=/--owner-password=/--bits=), not the
-        # deprecated positional "--encrypt user owner 256". qpdf 11.9.x
-        # rejects the positional form for some passwords (e.g. a base64
-        # owner password with '/'), and the flag form is also unambiguous
-        # for any password that could otherwise look like an option. Each
-        # line of the @- argfile is one argument, so the value after the
-        # first '=' is taken verbatim - trailing '=' and internal '/' are
-        # safe.
+        # deprecated positional "--encrypt user owner 256". The flag form is
+        # non-deprecated and, per qpdf's own help, "allows you to use any
+        # text as the password" - so a password that could look like an
+        # option is unambiguous. Each line of the @- argfile is one argument.
         $argFile = @(
             '--encrypt'
             "--user-password=$userPlain"
@@ -104,7 +101,19 @@ function Protect-Pdf {
         $pinfo.RedirectStandardOutput = $true
         $pinfo.CreateNoWindow = $true
         $proc = [System.Diagnostics.Process]::Start($pinfo)
-        $proc.StandardInput.Write($argFile)
+        # Write the argfile as BOM-less UTF-8 bytes straight to the pipe.
+        # The default StandardInput StreamWriter on Windows PowerShell 5.1
+        # emits a UTF-8 BOM; qpdf then reads the first line as the filename
+        # "<BOM>--encrypt" instead of the --encrypt option, and rejects every
+        # following --user-password/--owner-password flag as an unrecognized
+        # argument. Writing raw no-BOM bytes is what makes encryption work at
+        # all on the real Windows binary.
+        $enc = New-Object System.Text.UTF8Encoding($false)
+        $bytes = $enc.GetBytes($argFile)
+        $stdin = $proc.StandardInput.BaseStream
+        $stdin.Write($bytes, 0, $bytes.Length)
+        $stdin.Flush()
+        [Array]::Clear($bytes, 0, $bytes.Length)
         $proc.StandardInput.Close()
         $stderr = $proc.StandardError.ReadToEnd()
         [void]$proc.StandardOutput.ReadToEnd()
