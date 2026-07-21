@@ -46,7 +46,9 @@ The launcher no longer disappears silently on failure:
 
 | Task | Where |
 |------|-------|
-| Install on a machine | `install.ps1` (GPO startup script runs this) |
+| First-time setup on a machine | `setup.ps1` (guided; see `docs\ADMIN-SETUP.md`) |
+| Roll out to the team | `docs\PILOT-CHECKLIST.md` |
+| Staff quick reference | `docs\CHEATSHEET.md` |
 | Uninstall | `uninstall.ps1` |
 | Protect a file | Right-click in Explorer → **Protect with password** |
 | Protect + email | Right-click → **Protect and attach to new email** |
@@ -69,7 +71,7 @@ The launcher no longer disappears silently on failure:
   public key and written to a per-file sidecar on
   `\\server\data\PDFProtect-Escrow\YYYY\MM\`. Admin recovers via
   `Recover-File.ps1` + the private PFX on the safe's USB.
-- **Audit log** — JSONL at `%ProgramData%\PasswordProtect\audit.log`,
+- **Audit log** — JSONL at `%ProgramData%\CuroPDFProtect\audit.log`,
   7-year retention (Corps Act s.988A / RG 104).
 - **Outlook integration** — Protect-and-attach / -reply / -forward via
   Outlook COM with a 5-second timeout and a desktop-drop fallback.
@@ -90,13 +92,18 @@ The launcher no longer disappears silently on failure:
 
 - Target: Windows 10 / 11, PowerShell 5.1 (ships with Windows — do NOT
   require PS 7).
-- Channel: GPO startup script per-machine. Install path
-  `C:\Program Files\CuroPDFProtect\`.
-- Dependencies: `qpdf.exe` (Apache-2.0) bundled with pinned SHA-256 hashes, verified at install.
-- Shell integration: `HKLM\Software\Classes\*\shell\CuroProtectWithPassword`
+- **Setup: run `setup.ps1` once per machine** — guided, and either
+  **Install** mode (admin; adds the right-click menu; installs to
+  `C:\Program Files\CuroPDFProtect\`) or **Launcher** mode (no admin;
+  drag-and-drop from the tool folder). See `docs\ADMIN-SETUP.md`.
+- Dependencies: `qpdf.exe` + its runtime DLLs (Apache-2.0) bundled with pinned
+  SHA-256 hashes; **all** binaries are verified at install, and a tampered or
+  unpinned binary is refused.
+- Shell integration (Install mode): `HKLM\Software\Classes\*\shell\...`
   (per-machine — new staff don't need per-user setup).
-- Staged rollout via AD security groups: `CuroPDFProtect-Ring0` (3 machines,
-  1 week) → `-Ring1` (5, 1 week) → `-Ring2` (everyone).
+- Small team? Follow `docs\PILOT-CHECKLIST.md`. GPO startup-script deployment
+  and AD "ring" groups (`install.ps1 -SourcePath \\deploy$\...`) remain
+  available for larger, IT-managed estates.
 
 ## Compliance boundary
 
@@ -119,17 +126,20 @@ docs\
   DECISIONS.md                  decisions record (resolved)
   PROCEDURE.md                  policy one-pager
   RUNBOOK.md                    maintenance runbook
+setup.ps1                       guided first-time setup (Install | Launcher)
 src\
   Protect-File.ps1              Explorer entry point
   Protect-Folder.ps1            batch mode
+  Protect.psm1                  core protect-one-file chain
   Prompt-Password.ps1           WPF dialog + SecureString
+  Prompt-Drop.ps1               drag-drop window (standalone launcher)
+  Show-CuroError.ps1            loud-failure logging + notification
   Find-Client.ps1               CSV lookup + picker data
-  Invoke-QPdf.ps1               qpdf wrapper (stdin password)
-  Write-Escrow.ps1              per-file sidecar writer
-  Write-AuditLog.ps1            JSONL audit log
+  Invoke-QPdf.ps1               qpdf wrapper (password via @argfile)
+  Write-Escrow.ps1              per-file sidecar writer (RSA-OAEP-SHA256)
   Send-OutlookAttachment.ps1    Outlook COM + fallback
-  Config.psm1                   settings.json loader + validator
-  Logging.psm1                  heartbeat + structured errors
+  Config.psm1                   settings loader + validator + health
+  Logging.psm1                  JSONL audit log + heartbeat
 admin\
   Publish-Clients.ps1           atomic CSV publish from master XLSX
   Recover-File.ps1              escrow recovery
@@ -139,6 +149,7 @@ admin\
 install.ps1                     GPO-invoked installer
 uninstall.ps1                   GPO-invoked uninstaller
 tests\
-  *.Tests.ps1                   Pester smoke + integration
-  fixtures\                     sample PDFs, docx, long-path, etc.
+  *.Tests.ps1                   Pester suites (all gate CI)
+  fixtures\
+    clients-sample.csv          sample client list used by tests
 ```

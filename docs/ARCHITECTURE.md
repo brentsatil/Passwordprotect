@@ -48,10 +48,14 @@ Explorer right-click on file.pdf
 ```
 \Program Files\CuroPDFProtect\
 ├── VERSION
+├── setup.ps1              (guided first-time setup; Install or Launcher mode)
 ├── src\
 │   ├── Protect-File.ps1
 │   ├── Protect-Folder.ps1
+│   ├── Protect.psm1        (core protect-one-file chain)
 │   ├── Prompt-Password.ps1
+│   ├── Prompt-Drop.ps1     (drag-drop window for the standalone launcher)
+│   ├── Show-CuroError.ps1  (loud-failure logging + notification helper)
 │   ├── Find-Client.ps1
 │   ├── Invoke-QPdf.ps1
 │   ├── Write-Escrow.ps1
@@ -91,18 +95,43 @@ Explorer right-click on file.pdf
 └── previous\                   (N-1 payload, for rollback)
 ```
 
+## Configuration resolution
+
+`src\Config.psm1` is the single config system. `Get-CuroConfigPath` resolves
+which `settings.json` to load, in order:
+
+1. `$env:CURO_SETTINGS_PATH` - explicit override (used by `setup.ps1` while it
+   configures a machine, and by tests/CI).
+2. `%ProgramData%\CuroPDFProtect\settings.json` - the machine-wide install.
+3. `<tool root>\config\settings.json` - the no-admin **Launcher** deployment,
+   written by `setup.ps1 -Mode Launcher`.
+
+`config\settings.default.json` is a **template only** - it is never loaded
+directly; its placeholder `\\server\...` paths pass syntax validation but fail
+the health check, which is the point (a half-configured machine is caught).
+
+`$env:CURO_SUPPRESS_UI=1` makes the error notifier log-only (no dialog) - used
+by CI so a modal box can't hang a headless run.
+
 ## Password handling (critical path)
 
 1. WPF `PasswordBox` or programmatically built `SecureString` from CSV DOB.
 2. Never assigned to a managed `String`.
 3. Marshalled to a BSTR only at the exact moment of child-process launch or
    escrow wrap; zeroed via `Marshal.ZeroFreeBSTR` immediately.
-4. For `qpdf --encrypt`, passed as argv (qpdf's only supported channel).
-   The process lives for well under a second; argv is only visible to
-   processes running as the same user; `%CommandLine%` is never logged.
+4. For `qpdf --encrypt`, the passwords are written to a short-lived `@argfile`
+   (a temp file, locked to the current user, shredded and deleted immediately)
+   and passed to qpdf as `@<path>`. They never appear on qpdf's command line
+   (which is visible in Process Explorer/tasklist), and the argfile is written
+   as BOM-less UTF-8 (a BOM makes qpdf misparse `--encrypt`). The flag form
+   `--encrypt --user-password= --owner-password= --bits=256 --` is used.
 5. Non-PDF 7z handling has been removed from v1 business mode.
-6. Escrow wrap: UTF-8 bytes → `RSA-OAEP-SHA256` → base64 in the sidecar.
-   Plaintext bytes cleared with `Array.Clear` immediately after wrap.
+6. Escrow wrap: UTF-8 bytes → `RSA-OAEP-SHA256` (via the CNG key) → base64 in
+   the sidecar, recording `key_wrap_algorithm = rsa-oaep-sha256-cert`. If the
+   escrow certificate exposes only a legacy CSP key, it falls back to
+   OAEP-SHA1 (`rsa-oaep-sha1-cert`) rather than failing the protect; recovery
+   reads the recorded algorithm, so both - and older schema-1 sidecars - stay
+   recoverable. Plaintext bytes cleared with `Array.Clear` immediately after.
 7. `SecureString` disposed in a `finally` block; `GC.Collect` called to
    encourage reclamation of any short-lived managed copies.
 
@@ -110,7 +139,7 @@ Explorer right-click on file.pdf
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "created_utc": "2026-04-14T10:22:03Z",
   "tool_version": "1.0.0",
   "host": "CURO-WS07",
@@ -121,12 +150,19 @@ Explorer right-click on file.pdf
   "output_sha256": "abcd...64hex",
   "output_size_bytes": 184221,
   "cipher": "pdf-aes256",
-  "pubkey_fingerprint_sha256": "1234...64hex",
-  "wrapped_user_password_b64 / wrapped_owner_password_b64": "base64(RSA-OAEP-SHA256(pubkey, utf8(password)))",
+  "key_wrap_algorithm": "rsa-oaep-sha256-cert",
+  "public_key_fingerprint": "1234...40hex (cert thumbprint)",
+  "pubkey_fingerprint_sha256": "1234...40hex",
+  "wrapped_user_password_b64": "base64(RSA-OAEP(pubkey, utf8(user password)))",
+  "wrapped_owner_password_b64": "base64(RSA-OAEP(pubkey, utf8(owner password)))",
   "client_file_ref": "C-00421",
   "password_source": "dob"
 }
 ```
+
+Legacy `schema_version: 1` sidecars used a single `wrapped_password_b64` and
+SHA-1 OAEP; `admin\Recover-File.ps1` reads `key_wrap_algorithm` (defaulting to
+SHA-1 when absent) so every generation stays recoverable.
 
 One file per protected output. File name = `<output_sha256>.escrow.json`.
 No concurrency problem across machines (each writes a unique filename).
@@ -143,16 +179,17 @@ JSONL, one event per line. Examples:
 
 ### error_code enum
 
-Finite, documented. Used for alerting and diagnostics:
+The codes actually emitted by the core protect chain (`src\Protect.psm1`,
+`src\Invoke-QPdf.ps1`), used for alerting and diagnostics:
+- `OK`
 - `INPUT_NOT_FOUND`
+- `PDF_ONLY`
 - `PRE_ENCRYPTED`
 - `FILE_LOCKED`
-- `CSV_OFFLINE`
-- `ESCROW_OFFLINE`
 - `QPDF_FAIL`
-- `SEVENZIP_FAIL`
-- `POLICY_REJECT`
-- `USER_CANCEL`
+- `ESCROW_OFFLINE`
+
+(An outcome of `cancel` is recorded when the user closes the picker.)
 
 ## Test matrix (Pester)
 
@@ -175,23 +212,28 @@ Finite, documented. Used for alerting and diagnostics:
 | 15 | Pubkey rotated, old file recovery | succeeds with old private key |
 | 16 | Two machines protecting same second | two sidecars, both succeed |
 
-Run: `Invoke-Pester -Path .\tests` on the pilot machine weekly.
+The table above is the design intent. The automated coverage that actually
+runs lives in `tests\*.Tests.ps1` (Pester) plus the Windows CI workflow
+(`.github/workflows/windows-ci.yml`), which on every push exercises: the real
+qpdf encrypt/decrypt round-trip; the full protect chain (escrow + audit +
+fail-closed-on-dead-escrow); guided `setup.ps1` end to end in both modes; the
+escrow keygen -> wrap -> recover loop; audit-log concurrency; and binary-hash
+tamper refusal. Run locally with `Invoke-Pester -Path .\tests`.
 
 ## Staged rollout
 
-Three AD security groups filter the GPO:
-- `CuroPDFProtect-Ring0`: Brent + paraplanner + one adviser (3 machines).
-- `CuroPDFProtect-Ring1`: 5 advisers.
+For a small practice, use the pilot plan in `docs\PILOT-CHECKLIST.md`
+(set up -> prove recovery -> two pilot users -> whole team). The AD/GPO
+"ring" model below is only worth the overhead at larger scale:
+- `CuroPDFProtect-Ring0`: 3 machines, 1 week soak.
+- `CuroPDFProtect-Ring1`: ~5 machines, 1 week soak.
 - `CuroPDFProtect-Ring2`: remainder of the practice.
-
-Each ring soaks for 1 week. Daily check-in during Ring0 soak; day-end
-review during Ring1.
 
 ## Failure-mode summary
 
 | Failure | Behaviour | Recovery |
 |---------|-----------|----------|
-| Config missing/invalid | Refuse to run, message box | Re-run `install.ps1` |
+| Config missing/invalid | Refuse to run, message box (or `%LOCALAPPDATA%\CuroPDFProtect\error.log` from a hidden shim) | Run `setup.ps1` |
 | CSV share unreachable, cache < 48h | Use cache, warn banner | Resolve network |
 | CSV share unreachable, cache > 48h | Prompt still opens; picker empty; manual path available | Resolve network; next read refreshes cache |
 | PDF already encrypted | Refuse, suggest removing existing protection | Open in Acrobat and save without security first |

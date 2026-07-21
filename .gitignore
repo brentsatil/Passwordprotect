@@ -7,5 +7,8 @@
 tests/fixtures/out/
 *.escrow.json
 
+# Loud-failure logs written next to the launcher at runtime
+PasswordProtect-error.log
+
 # PowerShell module caches
 *.psd1.bak

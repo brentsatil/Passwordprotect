@@ -43,11 +43,13 @@ Passwords can leak via:
 **Mitigation (all in scope for v1)**
 
 - WPF `PasswordBox` → `SecureString` only.
-- Pass the password to `qpdf` via **stdin** or an ephemeral env var,
-  never as an argument.
-- Disable PowerShell history for the protect script
-  (`Set-PSReadLineOption -HistorySaveStyle SaveNothing` within the script's
-  runspace).
+- Pass the password to `qpdf` via a short-lived `@argfile` (a temp file locked
+  to the current user, written BOM-less, shredded and deleted immediately),
+  never on qpdf's command line.
+- PowerShell history is a non-issue here: the entries run as `-File` scripts,
+  not interactive input, so nothing is written to PSReadLine history. (The one
+  residual place a password briefly touches the clipboard is
+  `admin\Recover-File.ps1`; the operator is told to clear the clipboard.)
 - Audit log captures `filepath`, `user`, `timestamp`, `outcome` — never the
   password.
 
@@ -77,8 +79,11 @@ password falls to a GPU rig in seconds.
 
 **Mitigation**
 
-- Enforce minimum length (proposed: 12) and complexity in the prompt.
-  Reject weak passwords before encryption.
+- Manual passwords are held to a minimum length and complexity in the prompt
+  (`manual_password_min_length` = 10, `manual_password_required_classes` = 3 in
+  `config\settings.default.json`) and weak ones are rejected before encryption.
+  Raising the minimum to 12 is a config change pending director sign-off (see
+  the DOB-password note in `docs\DECISIONS.md`).
 - Offer an "insert generated password" button that writes a strong
   password to the prompt and copies it to the clipboard for the user to
   paste into their password manager.

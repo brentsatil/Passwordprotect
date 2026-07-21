@@ -133,3 +133,74 @@ the APP-regulated personal-and-financial information it handles, subject
 to the procedure in `docs/PROCEDURE.md`. For anything regulated at a
 higher bar (e.g. client legal records), escalate and use vendor-managed
 encryption.
+
+---
+
+# Rollout-hardening decisions (2026-07-21)
+
+Added while preparing the tool for wider team rollout. Each supersedes the
+matching part of the entries above where they differ.
+
+## 18. Guided setup + single config system
+
+**Decision:** A fresh machine is set up with one guided, idempotent
+`setup.ps1` in either **Install** (admin, right-click menus) or **Launcher**
+(no admin, drag-and-drop) mode. Config is resolved by one system
+(`Config.psm1` / `Get-CuroConfigPath`): `$env:CURO_SETTINGS_PATH` →
+`%ProgramData%\CuroPDFProtect\settings.json` → `<tool root>\config\settings.json`.
+`settings.default.json` is a template only. This replaces the previous
+"install.ps1 + a hand-staged settings.json only" story so the tool works from a
+fresh clone without recreating an AD/GPO/file-server environment first.
+Supersedes the deployment assumptions in entry 8 for small teams; GPO stays
+available for larger estates (see `docs\PILOT-CHECKLIST.md`).
+
+## 19. Escrow wrapping upgraded to OAEP-SHA256
+
+**Decision:** New escrow sidecars wrap passwords with RSA-OAEP-**SHA256** (via
+the certificate's CNG key), recording `key_wrap_algorithm=rsa-oaep-sha256-cert`.
+`Recover-File.ps1` chooses padding from the recorded algorithm, so legacy
+SHA-1 and schema-1 sidecars remain recoverable. Corrects the earlier code,
+which wrapped with SHA-1 while the docs claimed SHA-256. Also fixed a latent
+bug where recovery opened the private `.pfx` with an empty password
+(`-PfxPassword` is now required/prompted).
+
+## 20. qpdf password channel
+
+**Decision:** Passwords reach qpdf via a locked-down, BOM-less `@argfile`
+(temp file, shredded immediately), not the process command line. A UTF-8 BOM
+on the argfile made qpdf misparse `--encrypt` and silently broke encryption on
+the real Windows binary; this is the channel that actually works.
+
+## 21. Audit-log concurrency and folder ACLs
+
+**Decision:** Audit appends are serialised with a machine-wide named mutex
+(plus IOException retry) so a folder batch and a right-click running at once no
+longer collide and crash. `%ProgramData%\CuroPDFProtect` is made read-only for
+standard Users (protecting `settings.json` and `escrow.cer`), while `cache\`
+and `audit.log` stay writable. **Open item:** tightening the audit log to
+*append-only* (tamper-evident) for standard users is deferred — it needs the
+Framework-only append-only `FileStream` path and more testing; low priority for
+a small trusted team.
+
+## 22. Binary supply-chain verification
+
+**Decision:** `install.ps1` verifies **all** pinned binaries bidirectionally
+(every pin present and matching; every `.exe`/`.dll` in `bin\` pinned) and
+refuses a tampered or unpinned binary; a missing `HASHES.txt` is a hard
+refusal. `Test-CuroHealth` re-checks integrity at runtime. Replaces the prior
+behaviour that verified only `qpdf.exe`.
+
+## 23. DOB-as-password - **sign-off required at rollout**
+
+**Flag, not a change.** The password is the client DOB (`DDMMYYYY`, ~30k
+plausible values, often discoverable), and the covering-email boilerplate
+discloses the format. This is an accepted trade-off (entry 3 / `PROCEDURE.md`),
+but before widening the audience it should get an explicit, dated **director
+sign-off**, with the option to raise the manual-password minimum from 10 to 12.
+
+## 24. Manual-fallback vs launcher behaviour - **to reconcile**
+
+**Flag.** Entry 1 says the manual-password fallback is "never a hard block",
+but the standalone launcher (`PasswordProtect.ps1`) invokes the picker with
+`-RequireClientDob`, which *does* require a client/DOB per file. Brent/Ian to
+decide the intended behaviour for the launcher and align the code or entry 1.
