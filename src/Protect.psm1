@@ -5,6 +5,7 @@
 # NOTHING in this module calls `exit`. Callers decide how to terminate.
 
 $script:here = $PSScriptRoot
+. (Join-Path $script:here 'Show-CuroError.ps1')
 . (Join-Path $script:here 'Find-Client.ps1')
 . (Join-Path $script:here 'Invoke-QPdf.ps1')
 . (Join-Path $script:here 'Write-Escrow.ps1')
@@ -101,17 +102,21 @@ function Invoke-ProtectFileCore {
 
     if ($encRes.OwnerPassword) { $encRes.OwnerPassword.Dispose() }
 
-    # Optional: delete original.
+    # Optional: delete original. A failure here must not be silent - the
+    # user asked for the original to go away and needs to know it is still
+    # on disk.
     $deleted = $false
+    $deleteError = $null
     if ($PromptResult.DeleteOriginal) {
-        try { Remove-Item -LiteralPath $Path -Force; $deleted = $true } catch { }
+        try { Remove-Item -LiteralPath $Path -Force; $deleted = $true }
+        catch { $deleteError = $_.Exception.Message }
     }
 
     $durationMs = [int]((Get-Date) - $startTs).TotalMilliseconds
     $outSize = (Get-Item -LiteralPath $encRes.OutputPath).Length
     $inSize  = if (Test-Path -LiteralPath $Path) { (Get-Item -LiteralPath $Path).Length } else { $null }
 
-    Write-AuditEvent -Config $Config -Fields @{
+    $okFields = @{
         op='protect'; outcome='ok';
         src_path=$Path; dst_path=$encRes.OutputPath;
         cipher=$cipher; bytes_in=$inSize; bytes_out=$outSize;
@@ -119,6 +124,8 @@ function Invoke-ProtectFileCore {
         password_source=$PromptResult.PasswordSource; deleted_original=$deleted;
         escrow_written=$true; escrow_fp=$escrow.Fingerprint; output_sha256=$escrow.OutputSha256;
     }
+    if ($deleteError) { $okFields['delete_error'] = $deleteError }
+    Write-AuditEvent -Config $Config -Fields $okFields
 
     # Optional: Outlook attach.
     $effectiveOutlookMode = if ($OutlookMode -ne 'None') { $OutlookMode }
@@ -132,9 +139,15 @@ function Invoke-ProtectFileCore {
         }
     }
 
+    $message = "Protected: $($encRes.OutputPath)"
+    if ($deleteError) {
+        $message += [Environment]::NewLine + [Environment]::NewLine +
+            "WARNING: The original file could NOT be deleted: $deleteError" +
+            [Environment]::NewLine + "Remove it manually if required: $Path"
+    }
     return [pscustomobject]@{
         Success=$true; ExitCode=0; ErrorCode='OK'; OutputPath=$encRes.OutputPath
-        Message="Protected: $($encRes.OutputPath)"
+        Message=$message
     }
 }
 

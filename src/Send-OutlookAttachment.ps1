@@ -107,8 +107,10 @@ function Invoke-DesktopDropFallback {
     $target  = Join-Path $desktop (Split-Path $AttachmentPath -Leaf)
     try {
         Copy-Item -LiteralPath $AttachmentPath -Destination $target -Force
+        # Show-CuroError never throws, so a notification hiccup can no longer
+        # turn a successful desktop copy into a reported failure.
         $msg = "Outlook was not available ($Reason).`n`nA copy of the protected file was placed on your desktop:`n$target`n`nPlease attach it to your email manually."
-        [System.Windows.Forms.MessageBox]::Show($msg, 'Outlook unavailable') | Out-Null
+        Show-CuroError -Title 'Outlook unavailable' -Icon Information -Message $msg
         return [pscustomobject]@{ Success=$true; Mode='DesktopDrop'; Error=$Reason }
     } catch {
         return [pscustomobject]@{ Success=$false; Mode='DesktopDropFailed'; Error=$_.Exception.Message }

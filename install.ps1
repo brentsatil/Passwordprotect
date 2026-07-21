@@ -132,14 +132,14 @@ Register-ContextMenu `
     -EntryKey 'CuroProtectWithPassword' `
     -Label 'Protect with password' `
     -Icon (Join-Path $InstallDir 'bin\qpdf.exe') `
-    -Command ('"{0}" -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{1}" -Path "%1"' -f $psExe, $protectScript)
+    -Command ('"{0}" -NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "{1}" -Path "%1"' -f $psExe, $protectScript)
 
 # Entry on all files: Protect and attach to new Outlook email
 Register-ContextMenu `
     -RootKey 'HKLM:\Software\Classes\*\shell' `
     -EntryKey 'CuroProtectAndEmail' `
     -Label 'Protect and attach to new email' `
-    -Command ('"{0}" -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{1}" -Path "%1" -OutlookMode New' -f $psExe, $protectScript)
+    -Command ('"{0}" -NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "{1}" -Path "%1" -OutlookMode New' -f $psExe, $protectScript)
 
 # Entry on folders: Protect all files in folder
 $folderScript = Join-Path $InstallDir 'src\Protect-Folder.ps1'
@@ -147,7 +147,7 @@ Register-ContextMenu `
     -RootKey 'HKLM:\Software\Classes\Directory\shell' `
     -EntryKey 'CuroProtectFolder' `
     -Label 'Protect all files in folder' `
-    -Command ('"{0}" -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{1}" -Path "%V"' -f $psExe, $folderScript)
+    -Command ('"{0}" -NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "{1}" -Path "%V"' -f $psExe, $folderScript)
 
 # Nudge Explorer to pick up new entries
 try { Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue; Start-Process explorer } catch { }
