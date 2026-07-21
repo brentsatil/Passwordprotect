@@ -5,7 +5,8 @@
   setup.ps1 runs in a CHILD powershell.exe (so its env changes - including
   CURO_SETTINGS_PATH - never leak into the Pester session) with %ProgramData%
   redirected under $TestDrive, so the escrow cert / audit / cache land in the
-  sandbox instead of the real machine.
+  sandbox instead of the real machine. Child output goes to a file so no
+  child-side error records can terminate these tests.
 #>
 
 BeforeAll {
@@ -29,28 +30,34 @@ BeforeAll {
     $script:escrowDir = Join-Path $TestDrive 'escrow-store'
     $script:pfxPath   = Join-Path $TestDrive 'escrow.pfx'
     $script:settings  = Join-Path $script:app 'config\settings.json'
+    $script:certPath  = Join-Path $script:pd 'CuroPDFProtect\escrow.cer'
+
+    # Run a child setup.ps1; return @{ Exit; Output }. Everything (stdout +
+    # stderr) is redirected to a file so no error record reaches the pipeline.
+    function Invoke-SetupRaw {
+        param([string] $Inner)
+        $outFile = Join-Path $TestDrive ("setup-out-{0}.txt" -f ([guid]::NewGuid().Guid))
+        $cmd = "`$env:ProgramData = '$script:pd'; $Inner; exit `$LASTEXITCODE"
+        & $script:psExe -NoProfile -ExecutionPolicy Bypass -Command $cmd > $outFile 2>&1
+        $rc = $LASTEXITCODE
+        $out = if (Test-Path -LiteralPath $outFile) { Get-Content -LiteralPath $outFile -Raw } else { '' }
+        return [pscustomobject]@{ Exit = $rc; Output = $out }
+    }
 
     function Invoke-Setup {
-        param([string[]] $ExtraArgs = @(), [string] $Pfx = $script:pfxPath)
         $setupPath = Join-Path $script:app 'setup.ps1'
-        $argLine = @(
-            "-Mode Launcher -NonInteractive"
-            "-ClientListPath '$script:clientOut'"
-            "-EscrowDir '$script:escrowDir'"
-            "-ClientSource '$script:fixture'"
-            "-PfxPath '$Pfx'"
-            "-PfxPassword (ConvertTo-SecureString 'test-pfx-pw-1' -AsPlainText -Force)"
-        ) + $ExtraArgs -join ' '
-        $cmd = "`$env:ProgramData='$script:pd'; & '$setupPath' $argLine; exit `$LASTEXITCODE"
-        & $script:psExe -NoProfile -ExecutionPolicy Bypass -Command $cmd 2>&1 | Out-String | Write-Host
-        return $LASTEXITCODE
+        $inner = "& '$setupPath' -Mode Launcher -NonInteractive " +
+                 "-ClientListPath '$script:clientOut' -EscrowDir '$script:escrowDir' " +
+                 "-ClientSource '$script:fixture' -PfxPath '$script:pfxPath' " +
+                 "-PfxPassword (ConvertTo-SecureString 'test-pfx-pw-1' -AsPlainText -Force)"
+        return Invoke-SetupRaw -Inner $inner
     }
 }
 
 Describe 'setup.ps1 -Mode Launcher (first run)' {
-    BeforeAll { $script:rc = Invoke-Setup }
+    BeforeAll { $script:run1 = Invoke-Setup; Write-Host $script:run1.Output }
 
-    It 'exits 0' { $script:rc | Should -Be 0 }
+    It 'exits 0' { $script:run1.Exit | Should -Be 0 }
 
     It 'writes a valid settings.json into the tool config folder' {
         $script:settings | Should -Exist
@@ -61,25 +68,25 @@ Describe 'setup.ps1 -Mode Launcher (first run)' {
     }
 
     It 'generates the escrow keypair (public cert + private pfx)' {
-        (Join-Path $script:pd 'CuroPDFProtect\escrow.cer') | Should -Exist
-        $script:pfxPath | Should -Exist
+        $script:certPath | Should -Exist
+        $script:pfxPath  | Should -Exist
     }
 
     It 'publishes the client list, skipping the malformed DOB row' {
         $script:clientOut | Should -Exist
-        $rows = Import-Csv -LiteralPath $script:clientOut
         # fixture has 3 rows; the 99/99/9999 one is rejected.
-        @($rows).Count | Should -Be 2
+        @(Import-Csv -LiteralPath $script:clientOut).Count | Should -Be 2
     }
 }
 
 Describe 'setup.ps1 -Mode Launcher (idempotent re-run)' {
     It 're-runs cleanly and leaves the escrow certificate untouched' {
-        $certPath = Join-Path $script:pd 'CuroPDFProtect\escrow.cer'
-        $before = (Get-FileHash -Algorithm SHA256 -LiteralPath $certPath).Hash
-        $rc2 = Invoke-Setup
-        $rc2 | Should -Be 0
-        (Get-FileHash -Algorithm SHA256 -LiteralPath $certPath).Hash | Should -Be $before
+        $script:certPath | Should -Exist   # created by the first-run Describe
+        $before = (Get-FileHash -Algorithm SHA256 -LiteralPath $script:certPath).Hash
+        $run2 = Invoke-Setup
+        Write-Host $run2.Output
+        $run2.Exit | Should -Be 0
+        (Get-FileHash -Algorithm SHA256 -LiteralPath $script:certPath).Hash | Should -Be $before
     }
 }
 
@@ -87,9 +94,8 @@ Describe 'setup.ps1 -NonInteractive with a missing required value' {
     It 'fails fast and names the missing parameter' {
         $setupPath = Join-Path $script:app 'setup.ps1'
         # Omit -ClientListPath; -NonInteractive must refuse to prompt.
-        $cmd = "`$env:ProgramData='$script:pd'; & '$setupPath' -Mode Launcher -NonInteractive -EscrowDir '$script:escrowDir'; exit `$LASTEXITCODE"
-        $out = & $script:psExe -NoProfile -ExecutionPolicy Bypass -Command $cmd 2>&1 | Out-String
-        $LASTEXITCODE | Should -Not -Be 0
-        $out | Should -Match 'ClientListPath'
+        $r = Invoke-SetupRaw -Inner "& '$setupPath' -Mode Launcher -NonInteractive -EscrowDir '$script:escrowDir'"
+        $r.Exit   | Should -Not -Be 0
+        $r.Output | Should -Match 'ClientListPath'
     }
 }
