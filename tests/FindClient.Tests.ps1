@@ -63,17 +63,21 @@ Describe 'Find-Client picker matches' {
             )
         }
     }
+    # NB: results are wrapped in @() before .Count - Windows PowerShell 5.1
+    # has no intrinsic .Count on a single PSCustomObject (returns $null);
+    # that is a PS 7-only convenience. Production code does the same
+    # (Prompt-Password.ps1 wraps with @() before consuming).
     It 'matches substring case-insensitively' {
-        (Find-Client -ClientList $script:list -Query 'smith').Count | Should -Be 2
+        @(Find-Client -ClientList $script:list -Query 'smith').Count | Should -Be 2
     }
     It "handles apostrophes in names" {
-        (Find-Client -ClientList $script:list -Query "o'brien").Count | Should -Be 1
+        @(Find-Client -ClientList $script:list -Query "o'brien").Count | Should -Be 1
     }
     It 'matches file_ref' {
-        (Find-Client -ClientList $script:list -Query 'C-00421').Count | Should -Be 1
+        @(Find-Client -ClientList $script:list -Query 'C-00421').Count | Should -Be 1
     }
     It 'returns nothing for empty query' {
-        (Find-Client -ClientList $script:list -Query '').Count | Should -Be 0
+        @(Find-Client -ClientList $script:list -Query '').Count | Should -Be 0
     }
 }
 
@@ -89,14 +93,14 @@ Describe 'Find-ClientForFileName bulk matching' {
     }
 
     It 'matches a file_ref embedded in a filename' {
-        (Find-ClientForFileName -ClientList $script:bulkList -FilePath 'C:\tmp\SOA_C-00502_final.pdf').Count | Should -Be 1
+        @(Find-ClientForFileName -ClientList $script:bulkList -FilePath 'C:\tmp\SOA_C-00502_final.pdf').Count | Should -Be 1
     }
 
     It 'matches client name tokens in a filename' {
-        (Find-ClientForFileName -ClientList $script:bulkList -FilePath 'C:\tmp\John_Smith_review.pdf').Count | Should -Be 1
+        @(Find-ClientForFileName -ClientList $script:bulkList -FilePath 'C:\tmp\John_Smith_review.pdf').Count | Should -Be 1
     }
 
     It 'returns multiple candidates for ambiguous family-name filenames' {
-        (Find-ClientForFileName -ClientList $script:bulkList -FilePath 'C:\tmp\Smith_report.pdf').Count | Should -Be 2
+        @(Find-ClientForFileName -ClientList $script:bulkList -FilePath 'C:\tmp\Smith_report.pdf').Count | Should -Be 2
     }
 }
