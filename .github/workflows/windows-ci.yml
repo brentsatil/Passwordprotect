@@ -257,8 +257,19 @@ jobs:
           if (-not (Test-Path $out)) { throw "protected PDF not produced" }
           & $qpdf --password=01031990 --decrypt $out (Join-Path $work 'dec.pdf') 2>&1 | Out-Null
           if (($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 3)) { throw "decrypt with the DOB failed ($LASTEXITCODE)" }
-          if (@(Get-ChildItem -Path $escrowDir -Filter '*.escrow.json' -Recurse).Count -lt 1) { throw "no escrow sidecar written" }
-          Write-Host "Launcher E2E OK: guided setup -> healthy -> protect -> decrypt with DOB -> escrow sidecar."
+          $sidecar = Get-ChildItem -Path $escrowDir -Filter '*.escrow.json' -Recurse | Select-Object -First 1
+          if (-not $sidecar) { throw "no escrow sidecar written" }
+          $entry = Get-Content -LiteralPath $sidecar.FullName -Raw | ConvertFrom-Json
+          if ($entry.key_wrap_algorithm -ne 'rsa-oaep-sha256-cert') { throw "escrow not SHA-256 wrapped: $($entry.key_wrap_algorithm)" }
+
+          # Full recovery loop: reopen the setup-generated PFX (with its password)
+          # and recover the escrowed password - it must equal the DOB.
+          . (Join-Path $app 'admin\Recover-File.ps1')   # Unprotect-EscrowEntry (guarded main)
+          $recCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfx, (ConvertTo-SecureString 'ci-pfx-pw-1' -AsPlainText -Force), [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable)
+          try { $recovered = Unprotect-EscrowEntry -Entry $entry -Certificate $recCert -Which user } finally { $recCert.Dispose() }
+          if ($recovered -ne '01031990') { throw "recovered password mismatch: got '$recovered', expected the DOB" }
+
+          Write-Host "Launcher E2E OK: setup -> healthy -> protect -> decrypt -> SHA-256 escrow -> recover with the PFX."
           exit 0
 
       - name: E2E install mode (machine-wide install + uninstall)

@@ -30,11 +30,28 @@ function Convert-SecureStringToUtf8Bytes {
 }
 
 function Protect-EscrowBytes {
+    <#
+    .SYNOPSIS
+        Wrap bytes under the escrow certificate's public key.
+    .OUTPUTS
+        @{ Wrapped = [byte[]]; Label = 'rsa-oaep-sha256-cert' | 'rsa-oaep-sha1-cert' }
+    #>
     param([Parameter(Mandatory)][System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate,[Parameter(Mandatory)][byte[]]$Bytes)
-    $rsa = $Certificate.PublicKey.Key
+    # Prefer SHA-256 OAEP via the CNG key (GetRSAPublicKey returns an RSACng for
+    # certs from New-SelfSignedCertificate on Win10/11). Fall back to SHA-1 only
+    # if the key is a legacy CSP that cannot do SHA-256 - never fail a protect
+    # over padding capability. Recovery reads the recorded label back.
+    $rsa = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPublicKey($Certificate)
     if (-not $rsa) { throw 'Escrow certificate does not contain an RSA public key.' }
-    if ($rsa -is [System.Security.Cryptography.RSACryptoServiceProvider]) { return $rsa.Encrypt($Bytes, $true) }
-    return $rsa.Encrypt($Bytes, [System.Security.Cryptography.RSAEncryptionPadding]::OaepSHA1)
+    if ($rsa -is [System.Security.Cryptography.RSACryptoServiceProvider]) {
+        # Legacy CSP handle: OAEP-SHA1 only.
+        return @{ Wrapped = $rsa.Encrypt($Bytes, $true); Label = 'rsa-oaep-sha1-cert' }
+    }
+    try {
+        return @{ Wrapped = $rsa.Encrypt($Bytes, [System.Security.Cryptography.RSAEncryptionPadding]::OaepSHA256); Label = 'rsa-oaep-sha256-cert' }
+    } catch {
+        return @{ Wrapped = $rsa.Encrypt($Bytes, [System.Security.Cryptography.RSAEncryptionPadding]::OaepSHA1); Label = 'rsa-oaep-sha1-cert' }
+    }
 }
 
 function Write-EscrowSidecar {
@@ -63,6 +80,7 @@ function Write-EscrowSidecar {
             if ($userBytes) { [Array]::Clear($userBytes,0,$userBytes.Length) }
             if ($ownerBytes) { [Array]::Clear($ownerBytes,0,$ownerBytes.Length) }
         }
+        $wrapAlgorithm = $wrappedUser.Label
 
         $sha = Get-FileSha256 -Path $OutputPath
         $size = (Get-Item -LiteralPath $OutputPath).Length
@@ -83,11 +101,11 @@ function Write-EscrowSidecar {
             output_sha256 = $sha
             output_size_bytes = $size
             cipher = $Cipher
-            key_wrap_algorithm = 'rsa-oaep-sha1-cert'
+            key_wrap_algorithm = $wrapAlgorithm
             public_key_fingerprint = $fingerprint
             pubkey_fingerprint_sha256 = $fingerprint
-            wrapped_user_password_b64 = [Convert]::ToBase64String($wrappedUser)
-            wrapped_owner_password_b64 = [Convert]::ToBase64String($wrappedOwner)
+            wrapped_user_password_b64 = [Convert]::ToBase64String($wrappedUser.Wrapped)
+            wrapped_owner_password_b64 = [Convert]::ToBase64String($wrappedOwner.Wrapped)
             client_file_ref = $ClientFileRef
             password_source = $PasswordSource
         }
