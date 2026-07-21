@@ -119,6 +119,12 @@ jobs:
           & $qpdf --version
           if ($LASTEXITCODE -ne 0) { throw "qpdf --version exited $LASTEXITCODE" }
 
+          # --- TEMP DIAGNOSTIC: capture the exact encryption syntax this
+          # binary accepts (removed once Invoke-QPdf matches it). ---
+          Write-Host "===== qpdf --help=encryption ====="
+          & $qpdf --help=encryption 2>&1 | ForEach-Object { Write-Host $_ }
+          Write-Host "===== end encryption help ====="
+
           # --- shared password (DOB) as a SecureString, exactly like the tool ---
           $pw = '01031970'
           $ss = New-Object System.Security.SecureString
