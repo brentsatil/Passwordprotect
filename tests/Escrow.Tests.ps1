@@ -51,15 +51,20 @@ Describe 'Escrow wrap + recover round-trip' {
         $sidecar.SidecarPath | Should -Exist
 
         $entry = Get-Content $sidecar.SidecarPath -Raw | ConvertFrom-Json
-        $entry.schema_version | Should -Be 1
+        $entry.schema_version | Should -Be 2
         $entry.cipher          | Should -Be 'pdf-aes256'
         $entry.client_file_ref | Should -Be 'C-00421'
-        $entry.pubkey_fingerprint_sha256.Length | Should -Be 64
+        $entry.key_wrap_algorithm | Should -Be 'rsa-oaep-sha1-cert'
+        # Cert thumbprint (SHA-1), lowercased with no spaces.
+        $entry.public_key_fingerprint | Should -Match '^[0-9a-f]{40}$'
 
-        # Recover.
-$cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($script:privPath, 'test-pfx-password')
+        # Recover. GetRSAPrivateKey (not the legacy .PrivateKey getter, which
+        # cannot open the CNG keys New-SelfSignedCertificate produces).
+        $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($script:privPath, 'test-pfx-password')
         try {
-            $plainBytes = $cert.PrivateKey.Decrypt([Convert]::FromBase64String($entry.wrapped_user_password_b64), $true)
+            $rsa = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($cert)
+            $plainBytes = $rsa.Decrypt([Convert]::FromBase64String($entry.wrapped_user_password_b64),
+                [System.Security.Cryptography.RSAEncryptionPadding]::OaepSHA1)
             $recovered = [System.Text.Encoding]::UTF8.GetString($plainBytes)
         } finally { $cert.Dispose() }
 
@@ -75,6 +80,6 @@ $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate
         foreach ($c in 'x'.ToCharArray()) { $ss.AppendChar($c) }
         $ss.MakeReadOnly()
         { Write-EscrowSidecar -Config $badCfg -SourcePath 'x' -OutputPath $script:outPath `
-            -Cipher 'pdf-aes256' -PasswordSource 'manual' -Password $ss } | Should -Throw
+            -Cipher 'pdf-aes256' -PasswordSource 'manual' -UserPassword $ss -OwnerPassword $ss } | Should -Throw
     }
 }

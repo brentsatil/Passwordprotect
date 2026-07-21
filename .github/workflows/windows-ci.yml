@@ -15,12 +15,35 @@ on:
 jobs:
   windows:
     runs-on: windows-latest
+    timeout-minutes: 25
     defaults:
       run:
         shell: powershell   # Windows PowerShell 5.1 — the exact host PasswordProtect.cmd uses
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: ASCII source check (PS 5.1 parse safety)
+        run: |
+          # Non-ASCII bytes in .ps1/.cmd sources have repeatedly broken
+          # Windows PowerShell 5.1 parsing in this repo (see git history).
+          # Docs are exempt; scripts must be pure ASCII.
+          $ErrorActionPreference = 'Stop'
+          $offenders = @()
+          Get-ChildItem -Recurse -File | Where-Object { $_.Extension -in '.ps1','.psm1','.cmd' } | ForEach-Object {
+            $bytes = [IO.File]::ReadAllBytes($_.FullName)
+            for ($i = 0; $i -lt $bytes.Length; $i++) {
+              if ($bytes[$i] -gt 0x7F) {
+                $offenders += ('{0}: byte 0x{1:X2} at offset {2}' -f $_.FullName, $bytes[$i], $i)
+                break
+              }
+            }
+          }
+          if ($offenders.Count) {
+            $offenders | ForEach-Object { Write-Host "NON-ASCII: $_" }
+            throw "$($offenders.Count) script file(s) contain non-ASCII bytes."
+          }
+          Write-Host "All script sources are pure ASCII."
 
       - name: Syntax-check every .ps1 (AST parse)
         run: |
@@ -50,7 +73,7 @@ jobs:
           # Dot-sourcing sets InvocationName to '.', so the guarded entry point
           # must NOT execute (no dialog, no exit).
           . .\PasswordProtect.ps1
-          foreach ($fn in 'Format-DobPassword','Get-OutputPath','Resolve-Settings') {
+          foreach ($fn in 'Format-DobPassword','Get-OutputPath') {
             if (-not (Get-Command $fn -ErrorAction SilentlyContinue)) {
               throw "$fn not defined after dot-sourcing PasswordProtect.ps1"
             }
@@ -70,12 +93,12 @@ jobs:
             Install-Module Pester -MinimumVersion 5.5.0 -Force -Scope CurrentUser -SkipPublisherCheck -AllowClobber
           }
 
-      - name: Test the standalone tool (Pester, blocking)
+      - name: Pester tests (all suites, blocking)
         run: |
           $ErrorActionPreference = 'Stop'
           Import-Module Pester -MinimumVersion 5.5.0
           $cfg = New-PesterConfiguration
-          $cfg.Run.Path = './tests/PasswordProtect.Tests.ps1'
+          $cfg.Run.Path = './tests'
           $cfg.Run.Exit = $true
           $cfg.Output.Verbosity = 'Detailed'
           $cfg.TestResult.Enabled = $true
@@ -161,21 +184,6 @@ jobs:
           # that as the step result. We got here only because every assertion
           # passed, so exit cleanly.
           exit 0
-
-      # Legacy enterprise tool (CSV client lookup + certificate escrow). These predate
-      # the standalone drag-and-drop tool and have known issues on Windows
-      # PowerShell 5.1 (kept non-blocking while target-machine integration is expanded). Informational
-      # only -- they do NOT gate the standalone tool.
-      - name: Legacy enterprise tests (informational, non-blocking)
-        continue-on-error: true
-        run: |
-          $ErrorActionPreference = 'Continue'
-          Import-Module Pester -MinimumVersion 5.5.0
-          $cfg = New-PesterConfiguration
-          $cfg.Run.Path = @('./tests/Config.Tests.ps1','./tests/FindClient.Tests.ps1','./tests/Escrow.Tests.ps1')
-          $cfg.Run.Exit = $false
-          $cfg.Output.Verbosity = 'Detailed'
-          Invoke-Pester -Configuration $cfg
 
       - name: Upload test results / crash log
         if: always()

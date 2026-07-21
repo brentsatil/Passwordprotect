@@ -14,8 +14,8 @@
 
 .NOTES
     Run with -STA (WPF requirement); PasswordProtect.cmd does this for you.
-    Pure helpers (Format-DobPassword, Get-OutputPath, Resolve-Settings) are
-    exercised by tests/PasswordProtect.Tests.ps1 without invoking the binaries.
+    Pure helpers (Format-DobPassword, Get-OutputPath) are exercised by
+    tests/PasswordProtect.Tests.ps1 without invoking the binaries.
 #>
 
 param(
@@ -77,69 +77,6 @@ function Get-OutputPath {
     return (Join-Path $dir $name)
 }
 
-function Resolve-Settings {
-    <#
-    .SYNOPSIS
-        Locate qpdf.exe and read naming options. Probe order:
-          1. business config in %ProgramData%\CuroPDFProtect\settings.json
-          2. bundled bin\ next to this script
-          3. qpdf on PATH
-        Throws a clear, user-facing message if a binary cannot be found.
-    .OUTPUTS
-        @{ QpdfPath; OutputSuffix; LongPathPrefix; AllowOverwrite }
-    #>
-    [CmdletBinding()]
-    param([string] $BaseDir = $script:Here)
-
-    # Defaults match config/settings.default.json.
-    $suffix         = '_protected'
-    $longPathPrefix = $true
-    $allowOverwrite = $false
-    $cfgQpdf        = $null
-
-
-    $cfgPath = Join-Path (Join-Path $BaseDir 'config') 'settings.default.json'
-    if (Test-Path -LiteralPath $cfgPath) {
-        try {
-            $cfg = Get-Content -LiteralPath $cfgPath -Raw | ConvertFrom-Json
-            if ($cfg.output_suffix)   { $suffix = [string]$cfg.output_suffix }
-            if ($null -ne $cfg.long_path_prefix) { $longPathPrefix = [bool]$cfg.long_path_prefix }
-            if ($null -ne $cfg.allow_overwrite)  { $allowOverwrite = [bool]$cfg.allow_overwrite }
-            if ($cfg.qpdf_path)      { $cfgQpdf  = [Environment]::ExpandEnvironmentVariables([string]$cfg.qpdf_path) }
-        } catch {
-            # Malformed config is non-fatal; fall back to bundled bin\.
-        }
-    }
-
-    $binDir = Join-Path $BaseDir 'bin'
-    $qpdf  = Resolve-Binary -Name 'qpdf.exe' -BundledPath (Join-Path $binDir 'qpdf.exe') -ConfigPath $cfgQpdf  -CommandName 'qpdf'
-
-    return @{
-        QpdfPath       = $qpdf
-        OutputSuffix   = $suffix
-        LongPathPrefix = $longPathPrefix
-        AllowOverwrite = $allowOverwrite
-    }
-}
-
-function Resolve-Binary {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)] [string] $Name,
-        [Parameter(Mandatory)] [string] $BundledPath,
-        [string] $ConfigPath,
-        [string] $CommandName
-    )
-    if (Test-Path -LiteralPath $BundledPath) { return $BundledPath }
-    if ($ConfigPath -and (Test-Path -LiteralPath $ConfigPath)) { return $ConfigPath }
-    if ($CommandName) {
-        $cmd = Get-Command $CommandName -ErrorAction SilentlyContinue
-        if ($cmd) { return $cmd.Source }
-    }
-    throw "$Name not found. Expected it at:`n  $BundledPath`nReinstall the tool or place $Name there."
-}
-
-
 function Show-HealthScreen {
     param([Parameter(Mandatory)]$Health)
     $lines = @('Curo PDF Protector needs setup before it can protect PDFs.','')
@@ -192,16 +129,7 @@ function Invoke-Main {
     }
     $config = $health.Config
 
-    # 2. Resolve binaries up front; clear error if missing.
-    try {
-        $settings = @{ QpdfPath=$config.qpdf_path; OutputSuffix=$config.output_suffix; LongPathPrefix=$config.long_path_prefix; AllowOverwrite=$config.allow_overwrite }
-    } catch {
-        [System.Windows.MessageBox]::Show($_.Exception.Message, 'Password Protect - setup problem',
-            'OK', 'Error') | Out-Null
-        return 2
-    }
-
-    # 3. Gather files: from args, or via the drop window.
+    # 2. Gather files: from args, or via the drop window.
     $paths = @($InputFiles | Where-Object { $_ })
     if ($paths.Count -eq 0) {
         $paths = @(& (Join-Path $script:SrcDir 'Prompt-Drop.ps1'))
@@ -209,7 +137,7 @@ function Invoke-Main {
     $paths = @($paths | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) })
     if ($paths.Count -eq 0) { return 0 }   # nothing to do / user closed window
 
-    # 4. Load clients and require a client/DOB assignment for every PDF.
+    # 3. Load clients and require a client/DOB assignment for every PDF.
     . (Join-Path $script:SrcDir 'Find-Client.ps1')
     $clientList = Get-ClientList -Config $config
     if ($clientList.HardFail) {
@@ -217,7 +145,7 @@ function Invoke-Main {
         return 2
     }
 
-    # 5. Protect each PDF with audit and escrow. Each row gets its own client picker
+    # 4. Protect each PDF with audit and escrow. Each row gets its own client picker
     # so unmatched/ambiguous files cannot be processed without manual resolution.
     $results = @()
     foreach ($p in $paths) {
@@ -234,7 +162,7 @@ function Invoke-Main {
         }
     }
 
-    # 6. Summary dialog.
+    # 5. Summary dialog.
     $ok   = @($results | Where-Object { $_.Success })
     $bad  = @($results | Where-Object { -not $_.Success })
     $lines = @()

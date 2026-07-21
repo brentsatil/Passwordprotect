@@ -28,9 +28,25 @@ Describe 'Get-CuroConfig' {
             manual_password_min_length = 10
             audit_log_retention_days = 2555
             audit_log_path = '%ProgramData%\CuroPDFProtect\audit.log'
+            qpdf_path = 'C:\Program Files\CuroPDFProtect\bin\qpdf.exe'
         } | ConvertTo-Json | Set-Content -LiteralPath $tmp.FullName -Encoding UTF8
         $cfg = Get-CuroConfig -Path $tmp.FullName
         $cfg.schema_version | Should -Be 1
+        Remove-Item $tmp
+    }
+
+    It 'rejects a config missing qpdf_path' {
+        $tmp = New-TemporaryFile
+        @{
+            schema_version = 1
+            client_lookup_file = '\\server\shared\PDFProtect\clients.csv'
+            escrow_dir = '\\server\data\PDFProtect-Escrow'
+            dob_password_digits = 8
+            manual_password_min_length = 10
+            audit_log_retention_days = 2555
+            audit_log_path = '%ProgramData%\CuroPDFProtect\audit.log'
+        } | ConvertTo-Json | Set-Content -LiteralPath $tmp.FullName -Encoding UTF8
+        { Get-CuroConfig -Path $tmp.FullName } | Should -Throw '*qpdf_path*'
         Remove-Item $tmp
     }
 }

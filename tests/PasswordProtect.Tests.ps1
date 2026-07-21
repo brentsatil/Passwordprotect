@@ -1,8 +1,8 @@
 #Requires -Modules Pester
 <#
     Tests for the standalone PasswordProtect tool. These exercise the pure
-    helpers only (DOB formatting, output naming, binary resolution) and never
-    invoke qpdf or any WPF dialog, so they run anywhere Pester runs.
+    helpers only (DOB formatting, output naming) and never invoke qpdf or
+    any WPF dialog, so they run anywhere Pester runs.
 #>
 
 BeforeAll {
@@ -56,35 +56,5 @@ Describe 'Get-OutputPath' {
     It 'honours a custom suffix' {
         $in = Join-Path $TestDrive 'a.pdf'
         Get-OutputPath -InputPath $in -Suffix '-locked' | Split-Path -Leaf | Should -Be 'a-locked.pdf'
-    }
-}
-
-Describe 'Resolve-Settings' {
-    It 'prefers the bundled bin\ binaries when present' {
-        $base = Join-Path $TestDrive 'app1'
-        $bin  = Join-Path $base 'bin'
-        New-Item -ItemType Directory -Path $bin -Force | Out-Null
-        Set-Content -LiteralPath (Join-Path $bin 'qpdf.exe') -Value 'x'
-        $s = Resolve-Settings -BaseDir $base
-        $s.QpdfPath     | Should -Be (Join-Path $bin 'qpdf.exe')
-        $s.OutputSuffix | Should -Be '_protected'
-    }
-
-    It 'falls back to config paths when bin\ is absent' {
-        $base = Join-Path $TestDrive 'app2'
-        $cfg  = Join-Path $base 'config'
-        New-Item -ItemType Directory -Path $cfg -Force | Out-Null
-        $fakeQpdf  = Join-Path $TestDrive 'q.exe'; Set-Content -LiteralPath $fakeQpdf  -Value 'x'
-        @{ output_suffix='_protected'; qpdf_path=$fakeQpdf } |
-            ConvertTo-Json | Set-Content -LiteralPath (Join-Path $cfg 'settings.default.json') -Encoding UTF8
-
-        $s = Resolve-Settings -BaseDir $base
-        $s.QpdfPath     | Should -Be $fakeQpdf
-    }
-
-    It 'throws a clear error when a binary cannot be found anywhere' {
-        $base = Join-Path $TestDrive 'app3'
-        New-Item -ItemType Directory -Path $base -Force | Out-Null
-        { Resolve-Settings -BaseDir $base } | Should -Throw '*not found*'
     }
 }

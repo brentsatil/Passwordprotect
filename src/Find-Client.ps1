@@ -25,16 +25,24 @@ function Get-NormalisedDob {
     param([string] $Raw)
 
     if ([string]::IsNullOrWhiteSpace($Raw)) { return $null }
-    $digits = ($Raw -replace '[^\d]', '')
-    if ($digits.Length -ne 8) { return $null }
 
-    # DDMMYYYY is the only accepted structure. Any 8-digit value that
-    # doesn't parse as a valid DDMMYYYY date is rejected - the row is
-    # skipped and the Practice Administrator is expected to fix the
-    # source spreadsheet.
-    $dd   = [int]$digits.Substring(0,2)
-    $mm   = [int]$digits.Substring(2,2)
-    $yyyy = [int]$digits.Substring(4,4)
+    # DDMMYYYY is the only accepted structure. Separator forms (12/03/1970,
+    # 1-3-1970, 12.03.1970) keep their day/month grouping, so single-digit
+    # day or month can be zero-padded. Without separators the value must be
+    # exactly 8 digits; anything else is rejected - the row is skipped and
+    # the Practice Administrator is expected to fix the source spreadsheet.
+    $m = [regex]::Match($Raw.Trim(), '(?<!\d)(\d{1,2})[\/\.\-](\d{1,2})[\/\.\-](\d{4})(?!\d)')
+    if ($m.Success) {
+        $dd   = [int]$m.Groups[1].Value
+        $mm   = [int]$m.Groups[2].Value
+        $yyyy = [int]$m.Groups[3].Value
+    } else {
+        $digits = ($Raw -replace '[^\d]', '')
+        if ($digits.Length -ne 8) { return $null }
+        $dd   = [int]$digits.Substring(0,2)
+        $mm   = [int]$digits.Substring(2,2)
+        $yyyy = [int]$digits.Substring(4,4)
+    }
 
     if ($mm -lt 1 -or $mm -gt 12) { return $null }
     if ($dd -lt 1 -or $dd -gt 31) { return $null }
@@ -151,7 +159,7 @@ function Find-Client {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] $ClientList,  # output of Get-ClientList
-        [Parameter(Mandatory)] [string] $Query
+        [Parameter(Mandatory)] [AllowEmptyString()] [string] $Query
     )
     if ([string]::IsNullOrWhiteSpace($Query)) { return @() }
     $q = $Query.Trim().ToLowerInvariant()
@@ -179,23 +187,30 @@ function Find-ClientForFileName {
     $fileKey = ConvertTo-ClientMatchKey $fileName
     if (-not $fileKey) { return @() }
 
-    $matches = New-Object System.Collections.Generic.List[object]
+    # Two match strengths. Strong: file_ref, the whole name, or 2+ name
+    # tokens found in the filename. Weak: a single long token (usually just
+    # the surname). Weak matches are offered only when no client matched
+    # strongly, so 'John_Smith_review.pdf' proposes only John while
+    # 'Smith_report.pdf' still proposes every Smith.
+    $strong = New-Object System.Collections.Generic.List[object]
+    $weak   = New-Object System.Collections.Generic.List[object]
     foreach ($c in $ClientList.Clients) {
-        $refKey = ConvertTo-ClientMatchKey $c.FileRef
+        $refKey  = ConvertTo-ClientMatchKey $c.FileRef
         $nameKey = ConvertTo-ClientMatchKey $c.Name
-        $hit = $false
-        if ($refKey -and $fileKey.Contains($refKey)) { $hit = $true }
-        elseif ($nameKey -and $fileKey.Contains($nameKey)) { $hit = $true }
-        else {
-            $parts = @($c.Name -split '[^A-Za-z0-9]+' | Where-Object { $_.Length -ge 3 } | ForEach-Object { ConvertTo-ClientMatchKey $_ })
-            if ($parts.Count -gt 0) {
-                $found = 0
-                foreach ($part in $parts | Select-Object -Unique) { if ($fileKey.Contains($part)) { $found++ } }
-                if ($found -ge [Math]::Min(2, $parts.Count)) { $hit = $true }
-                elseif (($parts | Where-Object { $_.Length -ge 4 -and $fileKey.Contains($_) } | Select-Object -First 1)) { $hit = $true }
-            }
+        if (($refKey -and $fileKey.Contains($refKey)) -or ($nameKey -and $fileKey.Contains($nameKey))) {
+            $strong.Add($c) | Out-Null
+            continue
         }
-        if ($hit) { $matches.Add($c) | Out-Null }
+        $parts = @($c.Name -split '[^A-Za-z0-9]+' | Where-Object { $_.Length -ge 3 } |
+                   ForEach-Object { ConvertTo-ClientMatchKey $_ } | Select-Object -Unique)
+        if ($parts.Count -eq 0) { continue }
+        $found = @($parts | Where-Object { $fileKey.Contains($_) })
+        if ($found.Count -ge [Math]::Min(2, $parts.Count)) {
+            $strong.Add($c) | Out-Null
+        } elseif (@($found | Where-Object { $_.Length -ge 4 }).Count -gt 0) {
+            $weak.Add($c) | Out-Null
+        }
     }
-    return @($matches | Select-Object -First 50)
+    $result = if ($strong.Count -gt 0) { $strong } else { $weak }
+    return @($result | Select-Object -First 50)
 }
