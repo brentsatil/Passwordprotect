@@ -97,6 +97,31 @@ function Assert-ConfigField {
 }
 
 
+function Test-CuroBinaryIntegrity {
+    <#
+    .SYNOPSIS
+        Verify every SHA-256-pinned binary next to qpdf.exe. Returns $null when
+        all match, or a human-readable reason string on the first problem.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$QpdfPath)
+    $binDir = [IO.Path]::GetDirectoryName($QpdfPath)
+    $hashes = Join-Path $binDir 'HASHES.txt'
+    if (-not (Test-Path -LiteralPath $hashes)) { return "HASHES.txt missing next to qpdf.exe ($hashes)." }
+    $expected = @{}
+    Get-Content -LiteralPath $hashes | ForEach-Object {
+        if ($_ -match '^\s*([a-fA-F0-9]{64})\s+\*?(.+?)\s*$') { $expected[$Matches[2].Trim().ToLowerInvariant()] = $Matches[1].ToLowerInvariant() }
+    }
+    if ($expected.Count -eq 0) { return 'HASHES.txt lists no pinned hashes.' }
+    foreach ($name in $expected.Keys) {
+        $p = Join-Path $binDir $name
+        if (-not (Test-Path -LiteralPath $p)) { return "Pinned binary missing: $name" }
+        $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $p).Hash.ToLowerInvariant()
+        if ($actual -ne $expected[$name]) { return "SHA-256 mismatch for $name (bundled binary modified)." }
+    }
+    return $null
+}
+
 function Test-CuroHealth {
     [CmdletBinding()]
     param([string]$Path = (Get-CuroConfigPath))
@@ -109,7 +134,14 @@ function Test-CuroHealth {
             @{Name='client list'; Path=$cfg.client_lookup_file; Step='Run admin\Publish-Clients.ps1 or fix client_lookup_file.'},
             @{Name='escrow certificate'; Path=$(if ($cfg.escrow_cert_path) { $cfg.escrow_cert_path } else { $cfg.escrow_pubkey_path }); Step='Deploy the escrow public certificate to ProgramData or fix escrow_cert_path.'}
         )) { if (-not $check.Path -or -not (Test-Path -LiteralPath $check.Path)) { $issues.Add([pscustomobject]@{ Component=$check.Name; Healthy=$false; Message="Missing or unreachable: $($check.Path)"; NextStep=$check.Step }) | Out-Null } }
-        try { $auditDir = Split-Path $cfg.audit_log_path -Parent; if (-not (Test-Path -LiteralPath $auditDir)) { New-Item -ItemType Directory -Path $auditDir -Force -ErrorAction Stop | Out-Null }; $probe=Join-Path $auditDir ('.health-{0}.tmp' -f [guid]::NewGuid().Guid); [IO.File]::WriteAllText($probe,'ok'); Remove-Item -LiteralPath $probe -Force }
+        if ($cfg.qpdf_path -and (Test-Path -LiteralPath $cfg.qpdf_path)) {
+            $integrity = Test-CuroBinaryIntegrity -QpdfPath $cfg.qpdf_path
+            if ($integrity) { $issues.Add([pscustomobject]@{ Component='binary integrity'; Healthy=$false; Message=$integrity; NextStep='Reinstall from a trusted source - a bundled binary is missing, unpinned, or modified.' }) | Out-Null }
+        }
+        # Probe audit writability by opening the log for append - the way logging
+        # actually writes, and what works under the append-friendly Users grant
+        # (a temp file in the folder would need write access the root now denies).
+        try { $auditDir = Split-Path $cfg.audit_log_path -Parent; if (-not (Test-Path -LiteralPath $auditDir)) { New-Item -ItemType Directory -Path $auditDir -Force -ErrorAction Stop | Out-Null }; $probe = New-Object System.IO.StreamWriter($cfg.audit_log_path, $true, [System.Text.UTF8Encoding]::new($false)); $probe.Dispose() }
         catch { $issues.Add([pscustomobject]@{ Component='audit log'; Healthy=$false; Message=$_.Exception.Message; NextStep='Fix audit_log_path permissions or create the configured audit folder.' }) | Out-Null }
         try { if (-not (Test-Path -LiteralPath $cfg.escrow_dir)) { New-Item -ItemType Directory -Path $cfg.escrow_dir -Force -ErrorAction Stop | Out-Null } }
         catch { $issues.Add([pscustomobject]@{ Component='escrow directory'; Healthy=$false; Message=$_.Exception.Message; NextStep='Restore access to escrow_dir before protecting PDFs.' }) | Out-Null }
@@ -125,4 +157,4 @@ function Test-CuroHealth {
     return $result
 }
 
-Export-ModuleMember -Function Get-CuroConfig, Test-CuroHealth, Get-CuroConfigPath
+Export-ModuleMember -Function Get-CuroConfig, Test-CuroHealth, Get-CuroConfigPath, Test-CuroBinaryIntegrity

@@ -68,26 +68,34 @@ foreach ($sub in 'src','admin','bin','config') {
 }
 Copy-Item -Path $versionFile -Destination $localVersionFile -Force
 
-# --- Verify binary hashes ----------------------------------------------------
+# --- Verify binary hashes (bidirectional) ------------------------------------
+# Refuse to install unverified binaries: every pinned file must be present and
+# match, AND every .exe/.dll in bin\ must be pinned (so a smuggled DLL - e.g.
+# a tampered qpdf29.dll, which holds the actual crypto - cannot slip through).
 $hashesPath = Join-Path $SourcePath 'bin\HASHES.txt'
-if (Test-Path $hashesPath) {
-    $expected = @{}
-    Get-Content $hashesPath | ForEach-Object {
-        if ($_ -match '^\s*([a-fA-F0-9]{64})\s+\*?(.+)\s*$') {
-            $expected[$Matches[2].Trim().ToLowerInvariant()] = $Matches[1].ToLowerInvariant()
+if (-not (Test-Path $hashesPath)) {
+    throw "bin\HASHES.txt is missing - refusing to install unverified binaries."
+}
+$expected = @{}
+Get-Content $hashesPath | ForEach-Object {
+    if ($_ -match '^\s*([a-fA-F0-9]{64})\s+\*?(.+?)\s*$') {
+        $expected[$Matches[2].Trim().ToLowerInvariant()] = $Matches[1].ToLowerInvariant()
+    }
+}
+if ($expected.Count -eq 0) { throw "bin\HASHES.txt contains no pinned hashes." }
+foreach ($name in $expected.Keys) {
+    $p = Join-Path $InstallDir "bin\$name"
+    if (-not (Test-Path -LiteralPath $p)) { throw "Pinned binary missing after copy: bin\$name" }
+    $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $p).Hash.ToLowerInvariant()
+    if ($actual -ne $expected[$name]) { throw "SHA-256 mismatch for bin\${name}: expected $($expected[$name]), got $actual" }
+}
+Get-ChildItem -LiteralPath (Join-Path $InstallDir 'bin') -File |
+    Where-Object { $_.Extension -in '.exe','.dll' } | ForEach-Object {
+        if (-not $expected.ContainsKey($_.Name.ToLowerInvariant())) {
+            throw "Unpinned binary in bin\: $($_.Name). Add it to HASHES.txt or remove it."
         }
     }
-    foreach ($bin in 'qpdf.exe') {
-        $p = Join-Path $InstallDir "bin\$bin"
-        $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $p).Hash.ToLowerInvariant()
-        $exp = $expected[$bin.ToLowerInvariant()]
-        if (-not $exp) { throw "No pinned hash for $bin in HASHES.txt" }
-        if ($actual -ne $exp) { throw "SHA-256 mismatch for ${bin}: expected $exp, got $actual" }
-        Write-Log "SHA-256 OK: $bin"
-    }
-} else {
-    Write-Warning "HASHES.txt not present on deploy share - binaries unverified."
-}
+Write-Log "SHA-256 verified: $($expected.Count) pinned binaries, no unpinned .exe/.dll."
 
 # --- Place settings.json -----------------------------------------------------
 $programData = 'C:\ProgramData\CuroPDFProtect'
@@ -112,11 +120,36 @@ if (Test-Path $pubSrc) {
 }
 
 # --- ACL ProgramData ---------------------------------------------------------
+# Break inheritance and make the root read-only for Users, so settings.json and
+# escrow.cer (which the tool trusts) cannot be tampered with by a standard user.
+# The cache folder and the audit log stay writable so the tool keeps working.
+$cacheDir  = Join-Path $programData 'cache'
+if (-not (Test-Path $cacheDir))  { New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null }
+$auditFile = Join-Path $programData 'audit.log'
+if (-not (Test-Path $auditFile)) { New-Item -ItemType File -Path $auditFile -Force | Out-Null }
+
 $acl = Get-Acl $programData
-$rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-    'BUILTIN\Users','Modify','ContainerInherit,ObjectInherit','None','Allow')
-$acl.SetAccessRule($rule)
+$acl.SetAccessRuleProtection($true, $false)   # break inheritance, drop inherited ACEs
+foreach ($id in 'NT AUTHORITY\SYSTEM','BUILTIN\Administrators') {
+    $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+        $id,'FullControl','ContainerInherit,ObjectInherit','None','Allow')))
+}
+$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+    'BUILTIN\Users','ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow')))
 Set-Acl $programData $acl
+
+# cache\: Users Modify (client-list cache refresh writes here).
+$cacheAcl = Get-Acl $cacheDir
+$cacheAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+    'BUILTIN\Users','Modify','ContainerInherit,ObjectInherit','None','Allow')))
+Set-Acl $cacheDir $cacheAcl
+
+# audit.log: Users Modify on the file (append audit rows). Tightening this to
+# append-only (tamper-evident) is a documented future step in docs/DECISIONS.md.
+$auditAcl = Get-Acl $auditFile
+$auditAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+    'BUILTIN\Users','Modify','Allow')))
+Set-Acl $auditFile $auditAcl
 
 # --- Register context menu (HKLM, per-machine) -------------------------------
 $psExe = "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe"

@@ -297,6 +297,19 @@ jobs:
           }
           Write-Host "Install OK: payload + ProgramData settings + 3 HKLM keys with -STA."
 
+          # ACL: settings.json must be read-only for Users; audit.log writable.
+          # (Runners run elevated, so prove intent by ACE inspection.)
+          function User-Rights($path) {
+            (Get-Acl -LiteralPath $path).Access |
+              Where-Object { $_.IdentityReference -match 'Users$' -and $_.AccessControlType -eq 'Allow' } |
+              ForEach-Object { $_.FileSystemRights.ToString() }
+          }
+          $sRights = (User-Rights (Join-Path $pd 'settings.json')) -join ';'
+          if ($sRights -match 'Modify|FullControl|\bWrite') { throw "Users have write on settings.json: $sRights" }
+          $aRights = (User-Rights (Join-Path $pd 'audit.log')) -join ';'
+          if ($aRights -notmatch 'Modify|FullControl|\bWrite') { throw "Users cannot write the audit log: $aRights" }
+          Write-Host "ACL OK: settings.json read-only for Users ($sRights); audit.log writable ($aRights)."
+
           # Drop a fake audit row, then uninstall WITHOUT -PurgeAuditLog and
           # confirm it survives (7-year retention) while keys + dir are gone.
           Set-Content -LiteralPath (Join-Path $pd 'audit.log') -Value '{"op":"test"}' -Encoding utf8
@@ -305,6 +318,38 @@ jobs:
           if (Get-CommandValue $subs[0])            { throw "uninstall left a context-menu key behind" }
           if (-not (Test-Path (Join-Path $pd 'audit.log'))) { throw "uninstall wrongly deleted the audit log" }
           Write-Host "Uninstall OK: keys + dir removed, audit log preserved."
+
+      - name: Tampered / unpinned binary is refused at install
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = (Get-Location).Path
+          function New-Source([string]$dest) {
+            New-Item -ItemType Directory -Force -Path $dest | Out-Null
+            foreach ($sub in 'src','bin','config','admin') { Copy-Item (Join-Path $src $sub) $dest -Recurse -Force }
+            foreach ($f in 'install.ps1','uninstall.ps1','VERSION') { Copy-Item (Join-Path $src $f) $dest -Force }
+          }
+          # (a) A flipped byte in a pinned DLL must be refused, naming the file.
+          $badA = Join-Path $env:RUNNER_TEMP 'src-tampered'
+          New-Source $badA
+          $dll = Join-Path $badA 'bin\qpdf29.dll'
+          $b = [IO.File]::ReadAllBytes($dll); $b[200] = $b[200] -bxor 0xFF; [IO.File]::WriteAllBytes($dll, $b)
+          $threw = $false; $msg = ''
+          try { & "$badA\install.ps1" -SourcePath $badA -InstallDir (Join-Path $env:RUNNER_TEMP 'InstBadA') -NoExplorerRestart -Silent }
+          catch { $threw = $true; $msg = $_.Exception.Message }
+          if (-not $threw)            { throw "install did NOT refuse a tampered qpdf29.dll" }
+          if ($msg -notmatch 'qpdf29\.dll') { throw "refusal did not name qpdf29.dll: $msg" }
+          Write-Host "Refused tampered DLL: $msg"
+
+          # (b) An unpinned extra binary must be refused.
+          $badB = Join-Path $env:RUNNER_TEMP 'src-unpinned'
+          New-Source $badB
+          Set-Content -LiteralPath (Join-Path $badB 'bin\evil.dll') -Value 'x' -Encoding ascii
+          $threw = $false; $msg = ''
+          try { & "$badB\install.ps1" -SourcePath $badB -InstallDir (Join-Path $env:RUNNER_TEMP 'InstBadB') -NoExplorerRestart -Silent }
+          catch { $threw = $true; $msg = $_.Exception.Message }
+          if (-not $threw)          { throw "install did NOT refuse an unpinned binary" }
+          if ($msg -notmatch 'evil\.dll') { throw "refusal did not name evil.dll: $msg" }
+          Write-Host "Refused unpinned binary: $msg"
 
       - name: Upload test results / crash log
         if: always()

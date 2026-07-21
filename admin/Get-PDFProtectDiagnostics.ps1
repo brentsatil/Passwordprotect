@@ -47,15 +47,26 @@ $report += "PS Version:         $($PSVersionTable.PSVersion)"
 $report += "OS:                 $((Get-CimInstance Win32_OperatingSystem).Caption) ($((Get-CimInstance Win32_OperatingSystem).Version))"
 $report += "----------------------------------------------------------"
 
-# Dependencies
-foreach ($dep in @(
-    @{ Name='qpdf'; Path=$config.qpdf_path })) {
-    if (Test-Path -LiteralPath $dep.Path) {
-        $h = (Get-FileHash -Algorithm SHA256 -LiteralPath $dep.Path).Hash
-        $report += "$($dep.Name.PadRight(18)): OK   SHA256=$h"
-    } else {
-        $report += "$($dep.Name.PadRight(18)): MISSING at $($dep.Path)"
+# Dependencies - integrity verdict + every pinned hash.
+$binDir = [IO.Path]::GetDirectoryName($config.qpdf_path)
+$integrity = Test-CuroBinaryIntegrity -QpdfPath $config.qpdf_path
+$report += "Binary integrity:   $(if ($integrity) { "FAIL - $integrity" } else { 'OK (all pinned binaries match)' })"
+$hashesFile = Join-Path $binDir 'HASHES.txt'
+if (Test-Path -LiteralPath $hashesFile) {
+    Get-Content -LiteralPath $hashesFile | ForEach-Object {
+        if ($_ -match '^\s*([a-fA-F0-9]{64})\s+\*?(.+?)\s*$') {
+            $name = $Matches[2].Trim()
+            $p = Join-Path $binDir $name
+            if (Test-Path -LiteralPath $p) {
+                $h = (Get-FileHash -Algorithm SHA256 -LiteralPath $p).Hash.ToLowerInvariant()
+                $report += ("  {0,-24} {1}" -f $name, $h)
+            } else {
+                $report += ("  {0,-24} MISSING" -f $name)
+            }
+        }
     }
+} else {
+    $report += "  HASHES.txt not found next to qpdf.exe ($hashesFile)"
 }
 $report += "----------------------------------------------------------"
 
