@@ -32,9 +32,12 @@ param(
 )
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Definition
-Import-Module (Join-Path (Split-Path $here -Parent) 'src\Config.psm1') -Force
-$config = Get-CuroConfig
-if (-not $Destination) { $Destination = $config.client_lookup_file }
+# Only the destination comes from config; when the caller passes -Destination
+# (as setup.ps1 does) this runs with no settings.json present yet.
+if (-not $Destination) {
+    Import-Module (Join-Path (Split-Path $here -Parent) 'src\Config.psm1') -Force
+    $Destination = (Get-CuroConfig).client_lookup_file
+}
 
 if (-not (Test-Path -LiteralPath $Source)) { throw "Source not found: $Source" }
 

@@ -25,14 +25,21 @@
 
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)] [string] $SourcePath,
+    [string] $SourcePath,
     [string] $NetworkConfigPath,
     [string] $ClientLookupPath,
     [string] $InstallDir = 'C:\Program Files\CuroPDFProtect',
-    [switch] $Silent
+    [switch] $Silent,
+    [switch] $NoExplorerRestart
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Default the source to this script's own folder so a fresh clone installs
+# without a deploy share (GPO usage still passes -SourcePath explicitly).
+if (-not $SourcePath) {
+    $SourcePath = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Definition }
+}
 
 function Write-Log { param($m) if (-not $Silent) { Write-Host "[install] $m" } }
 
@@ -149,8 +156,10 @@ Register-ContextMenu `
     -Label 'Protect all files in folder' `
     -Command ('"{0}" -NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "{1}" -Path "%V"' -f $psExe, $folderScript)
 
-# Nudge Explorer to pick up new entries
-try { Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue; Start-Process explorer } catch { }
+# Nudge Explorer to pick up new entries (skippable for headless/CI/setup use).
+if (-not $NoExplorerRestart) {
+    try { Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue; Start-Process explorer } catch { }
+}
 
 Write-Log "Install complete. Version $shareVersion registered."
 exit 0

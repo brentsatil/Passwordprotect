@@ -50,3 +50,27 @@ Describe 'Get-CuroConfig' {
         Remove-Item $tmp
     }
 }
+
+Describe 'Get-CuroConfigPath probe order' {
+    AfterEach { Remove-Item Env:CURO_SETTINGS_PATH -ErrorAction SilentlyContinue }
+
+    It 'honours the CURO_SETTINGS_PATH override even for a missing file' {
+        $env:CURO_SETTINGS_PATH = 'X:\nowhere\settings.json'
+        Get-CuroConfigPath | Should -Be 'X:\nowhere\settings.json'
+    }
+
+    It 'falls back to the machine-wide path when nothing is set or present' {
+        Remove-Item Env:CURO_SETTINGS_PATH -ErrorAction SilentlyContinue
+        $expected = Join-Path $env:ProgramData 'CuroPDFProtect\settings.json'
+        # On the CI runner neither the machine nor launcher config exists,
+        # so the machine-wide path is returned for a clear "not found" error.
+        if (-not (Test-Path -LiteralPath $expected)) {
+            Get-CuroConfigPath | Should -Be $expected
+        }
+    }
+
+    It 'names setup.ps1 in the not-found error' {
+        $env:CURO_SETTINGS_PATH = Join-Path $TestDrive 'absent.json'
+        { Get-CuroConfig } | Should -Throw '*setup.ps1*'
+    }
+}

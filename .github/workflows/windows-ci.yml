@@ -185,6 +185,44 @@ jobs:
           # passed, so exit cleanly.
           exit 0
 
+      - name: E2E install mode (machine-wide install + uninstall)
+        run: |
+          # The runner is admin, so exercise the real install path: payload
+          # copy + hash verify + HKLM context menus (with -STA) + ProgramData
+          # settings, then uninstall and confirm the audit log is preserved.
+          $ErrorActionPreference = 'Stop'
+          $src = (Get-Location).Path
+          $installDir = Join-Path $env:RUNNER_TEMP 'CuroInstall'
+
+          & .\install.ps1 -SourcePath $src -InstallDir $installDir -NoExplorerRestart -Silent
+          foreach ($rel in 'src\Protect-File.ps1','bin\qpdf.exe','admin\Recover-File.ps1') {
+            if (-not (Test-Path (Join-Path $installDir $rel))) { throw "install did not place $rel" }
+          }
+          $pd = 'C:\ProgramData\CuroPDFProtect'
+          if (-not (Test-Path (Join-Path $pd 'settings.json'))) { throw "install did not write ProgramData settings.json" }
+
+          # Every registered context-menu command must carry -STA.
+          $keys = @(
+            'HKLM:\Software\Classes\*\shell\CuroProtectWithPassword\command',
+            'HKLM:\Software\Classes\*\shell\CuroProtectAndEmail\command',
+            'HKLM:\Software\Classes\Directory\shell\CuroProtectFolder\command'
+          )
+          foreach ($k in $keys) {
+            if (-not (Test-Path $k)) { throw "missing context-menu key: $k" }
+            $cmd = (Get-ItemProperty -Path $k).'(default)'
+            if ($cmd -notmatch '\-STA') { throw "context-menu command lacks -STA: $cmd" }
+          }
+          Write-Host "Install OK: payload + ProgramData settings + 3 HKLM keys with -STA."
+
+          # Drop a fake audit row, then uninstall WITHOUT -PurgeAuditLog and
+          # confirm it survives (7-year retention) while keys + dir are gone.
+          Set-Content -LiteralPath (Join-Path $pd 'audit.log') -Value '{"op":"test"}' -Encoding utf8
+          & .\uninstall.ps1 -InstallDir $installDir -NoExplorerRestart
+          if (Test-Path $installDir)     { throw "uninstall left the install dir behind" }
+          if (Test-Path $keys[0])        { throw "uninstall left a context-menu key behind" }
+          if (-not (Test-Path (Join-Path $pd 'audit.log'))) { throw "uninstall wrongly deleted the audit log" }
+          Write-Host "Uninstall OK: keys + dir removed, audit log preserved."
+
       - name: Upload test results / crash log
         if: always()
         uses: actions/upload-artifact@v4

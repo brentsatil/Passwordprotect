@@ -1,18 +1,41 @@
 # Config.psm1
 # Loads and validates settings.json for the Curo PDF Protector.
-# Machine-wide only - never reads from %APPDATA% or user profile.
+# Never reads from %APPDATA% or user profile.
 
-$script:ConfigPath = Join-Path $env:ProgramData 'CuroPDFProtect\settings.json'
 $script:CurrentSchemaVersion = 1
+
+function Get-CuroConfigPath {
+    <#
+    .SYNOPSIS
+        Resolve which settings.json to load. Probe order:
+          1. $env:CURO_SETTINGS_PATH  (explicit override; test/CI seam)
+          2. %ProgramData%\CuroPDFProtect\settings.json  (machine-wide install)
+          3. <tool root>\config\settings.json  (no-admin launcher deployment,
+             written by setup.ps1 -Mode Launcher)
+        Returns the first that exists. If none exist, returns the machine-wide
+        path so "not found" errors name the location setup.ps1/install.ps1
+        create. An explicit CURO_SETTINGS_PATH is always honoured, even if the
+        file is missing, so the error names what the operator pointed at.
+    #>
+    [CmdletBinding()]
+    param()
+    if ($env:CURO_SETTINGS_PATH) { return $env:CURO_SETTINGS_PATH }
+    $machine = Join-Path $env:ProgramData 'CuroPDFProtect\settings.json'
+    if (Test-Path -LiteralPath $machine) { return $machine }
+    $toolRoot = Split-Path -Parent $PSScriptRoot   # src\ -> install/repo root
+    $launcher = Join-Path (Join-Path $toolRoot 'config') 'settings.json'
+    if (Test-Path -LiteralPath $launcher) { return $launcher }
+    return $machine
+}
 
 function Get-CuroConfig {
     [CmdletBinding()]
     param(
-        [string]$Path = $script:ConfigPath
+        [string]$Path = (Get-CuroConfigPath)
     )
 
     if (-not (Test-Path $Path)) {
-        throw "Config file not found at '$Path'. Re-run install.ps1."
+        throw "Config file not found at '$Path'. Run setup.ps1 on this machine (or install.ps1 from the deploy share) to create it."
     }
 
     $raw = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
@@ -76,10 +99,10 @@ function Assert-ConfigField {
 
 function Test-CuroHealth {
     [CmdletBinding()]
-    param([string]$Path = $script:ConfigPath)
+    param([string]$Path = (Get-CuroConfigPath))
     $issues = New-Object System.Collections.Generic.List[object]
     $cfg = $null
-    try { $cfg = Get-CuroConfig -Path $Path } catch { $issues.Add([pscustomobject]@{ Component='settings.json'; Healthy=$false; Message=$_.Exception.Message; NextStep="Create $Path by running install.ps1 -SourcePath <deploy folder> or copy config\settings.default.json to %ProgramData%\CuroPDFProtect\settings.json and edit the share paths." }) | Out-Null }
+    try { $cfg = Get-CuroConfig -Path $Path } catch { $issues.Add([pscustomobject]@{ Component='settings.json'; Healthy=$false; Message=$_.Exception.Message; NextStep="Run setup.ps1 on this machine to create $Path (guided), or install.ps1 -SourcePath <deploy folder> for a GPO install." }) | Out-Null }
     if ($cfg) {
         foreach ($check in @(
             @{Name='qpdf'; Path=$cfg.qpdf_path; Step='Install qpdf.exe or fix qpdf_path in settings.json.'},
@@ -94,4 +117,4 @@ function Test-CuroHealth {
     return [pscustomobject]@{ Healthy=($issues.Count -eq 0); Issues=@($issues); Config=$cfg }
 }
 
-Export-ModuleMember -Function Get-CuroConfig, Test-CuroHealth
+Export-ModuleMember -Function Get-CuroConfig, Test-CuroHealth, Get-CuroConfigPath

@@ -16,9 +16,12 @@ param(
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $root = Split-Path -Parent $here
-Import-Module (Join-Path $root 'src\Config.psm1') -Force
-$config = Get-CuroConfig
-if (-not $AuditPath) { $AuditPath = [Environment]::ExpandEnvironmentVariables($config.audit_log_path) }
+# The audit path is the only thing config provides here; skip the config load
+# entirely when the caller passes -AuditPath (e.g. aggregating copied logs).
+if (-not $AuditPath) {
+    Import-Module (Join-Path $root 'src\Config.psm1') -Force
+    $AuditPath = [Environment]::ExpandEnvironmentVariables((Get-CuroConfig).audit_log_path)
+}
 
 if (-not (Test-Path -LiteralPath $AuditPath)) { throw "Audit log not found at $AuditPath" }
 

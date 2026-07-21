@@ -11,7 +11,11 @@
       remove it (normally only at machine decommission after backup).
 #>
 [CmdletBinding()]
-param([switch] $PurgeAuditLog)
+param(
+    [switch] $PurgeAuditLog,
+    [string] $InstallDir = 'C:\Program Files\CuroPDFProtect',
+    [switch] $NoExplorerRestart
+)
 
 foreach ($k in @(
     'HKLM:\Software\Classes\*\shell\CuroProtectWithPassword',
@@ -21,13 +25,14 @@ foreach ($k in @(
     if (Test-Path $k) { Remove-Item -Path $k -Recurse -Force }
 }
 
-$installDir = 'C:\Program Files\CuroPDFProtect'
-if (Test-Path $installDir) { Remove-Item -Path $installDir -Recurse -Force }
+if (Test-Path $InstallDir) { Remove-Item -Path $InstallDir -Recurse -Force }
 
 if ($PurgeAuditLog) {
     $pd = 'C:\ProgramData\CuroPDFProtect'
     if (Test-Path $pd) { Remove-Item -Path $pd -Recurse -Force }
 }
 
-try { Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue; Start-Process explorer } catch { }
+if (-not $NoExplorerRestart) {
+    try { Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue; Start-Process explorer } catch { }
+}
 Write-Host "Curo PDF Protector removed."
