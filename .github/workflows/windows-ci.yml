@@ -234,6 +234,11 @@ jobs:
           $health = Test-CuroHealth -Path (Join-Path $app 'config\settings.json')
           if (-not $health.Healthy) { throw "post-setup health not green: $(($health.Issues | ForEach-Object { $_.Component }) -join ', ')" }
 
+          # qpdf writes warnings to stderr for the hand-rolled PDF; under
+          # EAP=Stop that stderr escalates into a NativeCommandError. Switch to
+          # Continue - every check below asserts explicitly via throw.
+          $ErrorActionPreference = 'Continue'
+
           # Build a tiny PDF and protect it through the real chain.
           $work = Join-Path $env:RUNNER_TEMP 'launcher-protect'
           New-Item -ItemType Directory -Force -Path $work | Out-Null
