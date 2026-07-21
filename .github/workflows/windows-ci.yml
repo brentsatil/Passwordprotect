@@ -277,15 +277,22 @@ jobs:
           $pd = 'C:\ProgramData\CuroPDFProtect'
           if (-not (Test-Path (Join-Path $pd 'settings.json'))) { throw "install did not write ProgramData settings.json" }
 
-          # Every registered context-menu command must carry -STA.
-          $keys = @(
-            'HKLM:\Software\Classes\*\shell\CuroProtectWithPassword\command',
-            'HKLM:\Software\Classes\*\shell\CuroProtectAndEmail\command',
-            'HKLM:\Software\Classes\Directory\shell\CuroProtectFolder\command'
+          # Every registered context-menu command must carry -STA. Read via the
+          # .NET registry API - the ProgID key is literally "*", which the
+          # PowerShell provider would treat as a wildcard.
+          function Get-CommandValue($sub) {
+            $k = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey($sub)
+            if (-not $k) { return $null }
+            try { return $k.GetValue('') } finally { $k.Close() }
+          }
+          $subs = @(
+            'Software\Classes\*\shell\CuroProtectWithPassword\command',
+            'Software\Classes\*\shell\CuroProtectAndEmail\command',
+            'Software\Classes\Directory\shell\CuroProtectFolder\command'
           )
-          foreach ($k in $keys) {
-            if (-not (Test-Path $k)) { throw "missing context-menu key: $k" }
-            $cmd = (Get-ItemProperty -Path $k).'(default)'
+          foreach ($sub in $subs) {
+            $cmd = Get-CommandValue $sub
+            if (-not $cmd) { throw "missing context-menu key: $sub" }
             if ($cmd -notmatch '\-STA') { throw "context-menu command lacks -STA: $cmd" }
           }
           Write-Host "Install OK: payload + ProgramData settings + 3 HKLM keys with -STA."
@@ -294,8 +301,8 @@ jobs:
           # confirm it survives (7-year retention) while keys + dir are gone.
           Set-Content -LiteralPath (Join-Path $pd 'audit.log') -Value '{"op":"test"}' -Encoding utf8
           & .\uninstall.ps1 -InstallDir $installDir -NoExplorerRestart
-          if (Test-Path $installDir)     { throw "uninstall left the install dir behind" }
-          if (Test-Path $keys[0])        { throw "uninstall left a context-menu key behind" }
+          if (Test-Path $installDir)                { throw "uninstall left the install dir behind" }
+          if (Get-CommandValue $subs[0])            { throw "uninstall left a context-menu key behind" }
           if (-not (Test-Path (Join-Path $pd 'audit.log'))) { throw "uninstall wrongly deleted the audit log" }
           Write-Host "Uninstall OK: keys + dir removed, audit log preserved."
 

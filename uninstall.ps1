@@ -17,12 +17,14 @@ param(
     [switch] $NoExplorerRestart
 )
 
-foreach ($k in @(
-    'HKLM:\Software\Classes\*\shell\CuroProtectWithPassword',
-    'HKLM:\Software\Classes\*\shell\CuroProtectAndEmail',
-    'HKLM:\Software\Classes\Directory\shell\CuroProtectFolder'
+# Remove via the .NET registry API: the all-files ProgID key is literally named
+# "*", which the PowerShell registry provider would treat as a wildcard.
+foreach ($sk in @(
+    'Software\Classes\*\shell\CuroProtectWithPassword',
+    'Software\Classes\*\shell\CuroProtectAndEmail',
+    'Software\Classes\Directory\shell\CuroProtectFolder'
 )) {
-    if (Test-Path $k) { Remove-Item -Path $k -Recurse -Force }
+    try { [Microsoft.Win32.Registry]::LocalMachine.DeleteSubKeyTree($sk, $false) } catch { }
 }
 
 if (Test-Path $InstallDir) { Remove-Item -Path $InstallDir -Recurse -Force }

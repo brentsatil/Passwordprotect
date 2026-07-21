@@ -123,36 +123,40 @@ $psExe = "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe"
 $protectScript = Join-Path $InstallDir 'src\Protect-File.ps1'
 
 function Register-ContextMenu {
-    param([string]$RootKey, [string]$EntryKey, [string]$Label, [string]$Command, [string]$Icon)
-    $full = "$RootKey\$EntryKey"
-    if (-not (Test-Path $full)) { New-Item -Path $full -Force | Out-Null }
-    Set-ItemProperty -Path $full -Name '(default)' -Value $Label
-    if ($Icon) { Set-ItemProperty -Path $full -Name 'Icon' -Value $Icon }
-    $cmdKey = "$full\command"
-    if (-not (Test-Path $cmdKey)) { New-Item -Path $cmdKey -Force | Out-Null }
-    Set-ItemProperty -Path $cmdKey -Name '(default)' -Value $Command
+    # SubKey is relative to HKLM, e.g. 'Software\Classes\*\shell\CuroProtectWithPassword'.
+    # Uses the .NET registry API on purpose: the all-files ProgID key is literally
+    # named "*", and the PowerShell registry provider (Test-Path / New-Item /
+    # Set-ItemProperty) treats "*" as a WILDCARD, which matches every ProgID and
+    # makes registration hang / write to the wrong keys. CreateSubKey takes the
+    # name literally.
+    param([string]$SubKey, [string]$Label, [string]$Command, [string]$Icon)
+    $key = [Microsoft.Win32.Registry]::LocalMachine.CreateSubKey($SubKey)
+    try {
+        $key.SetValue('', $Label)
+        if ($Icon) { $key.SetValue('Icon', $Icon) }
+        $cmd = $key.CreateSubKey('command')
+        try { $cmd.SetValue('', $Command) } finally { $cmd.Close() }
+    } finally { $key.Close() }
 }
+
+$folderScript = Join-Path $InstallDir 'src\Protect-Folder.ps1'
 
 # Entry on all files: Protect with password
 Register-ContextMenu `
-    -RootKey 'HKLM:\Software\Classes\*\shell' `
-    -EntryKey 'CuroProtectWithPassword' `
+    -SubKey 'Software\Classes\*\shell\CuroProtectWithPassword' `
     -Label 'Protect with password' `
     -Icon (Join-Path $InstallDir 'bin\qpdf.exe') `
     -Command ('"{0}" -NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "{1}" -Path "%1"' -f $psExe, $protectScript)
 
 # Entry on all files: Protect and attach to new Outlook email
 Register-ContextMenu `
-    -RootKey 'HKLM:\Software\Classes\*\shell' `
-    -EntryKey 'CuroProtectAndEmail' `
+    -SubKey 'Software\Classes\*\shell\CuroProtectAndEmail' `
     -Label 'Protect and attach to new email' `
     -Command ('"{0}" -NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "{1}" -Path "%1" -OutlookMode New' -f $psExe, $protectScript)
 
 # Entry on folders: Protect all files in folder
-$folderScript = Join-Path $InstallDir 'src\Protect-Folder.ps1'
 Register-ContextMenu `
-    -RootKey 'HKLM:\Software\Classes\Directory\shell' `
-    -EntryKey 'CuroProtectFolder' `
+    -SubKey 'Software\Classes\Directory\shell\CuroProtectFolder' `
     -Label 'Protect all files in folder' `
     -Command ('"{0}" -NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "{1}" -Path "%V"' -f $psExe, $folderScript)
 
