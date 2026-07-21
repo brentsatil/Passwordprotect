@@ -114,7 +114,15 @@ function Test-CuroHealth {
         try { if (-not (Test-Path -LiteralPath $cfg.escrow_dir)) { New-Item -ItemType Directory -Path $cfg.escrow_dir -Force -ErrorAction Stop | Out-Null } }
         catch { $issues.Add([pscustomobject]@{ Component='escrow directory'; Healthy=$false; Message=$_.Exception.Message; NextStep='Restore access to escrow_dir before protecting PDFs.' }) | Out-Null }
     }
-    return [pscustomobject]@{ Healthy=($issues.Count -eq 0); Issues=@($issues); Config=$cfg }
+    # Build the result with Add-Member rather than [pscustomobject]@{...}: the
+    # cast form intermittently throws "Argument types do not match" on Windows
+    # PowerShell 5.1 when a value is an array (Issues) alongside the config
+    # object, which would make callers see a null health result.
+    $result = New-Object -TypeName psobject
+    $result | Add-Member -MemberType NoteProperty -Name Healthy -Value ([bool]($issues.Count -eq 0))
+    $result | Add-Member -MemberType NoteProperty -Name Issues  -Value ([object[]]$issues.ToArray())
+    $result | Add-Member -MemberType NoteProperty -Name Config  -Value $cfg
+    return $result
 }
 
 Export-ModuleMember -Function Get-CuroConfig, Test-CuroHealth, Get-CuroConfigPath

@@ -163,7 +163,11 @@ if ((Test-Path -LiteralPath $settingsTarget) -and -not $Force) {
     $s['audit_log_path']     = Join-Path $programData 'audit.log'
     $s['client_lookup_cache_path'] = Join-Path $programData 'cache\clients.csv'
 
-    $json = ($s | ConvertTo-Json -Depth 6)
+    # -InputObject, NOT a pipe: piping an [ordered] dictionary can enumerate it
+    # into per-entry objects, yielding a JSON array (and an array $json that
+    # then fails WriteAllText's string overload with "Argument types do not
+    # match").
+    $json = [string](ConvertTo-Json -InputObject $s -Depth 6)
     $tmp = "$settingsTarget.tmp"
     [System.IO.File]::WriteAllText($tmp, $json, [System.Text.UTF8Encoding]::new($false))
     Move-Item -LiteralPath $tmp -Destination $settingsTarget -Force
