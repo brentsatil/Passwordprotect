@@ -6,19 +6,21 @@
   sidecars (so old protected files stay recoverable after the upgrade).
 #>
 
-function New-SS([string]$s) {
-    $ss = New-Object System.Security.SecureString
-    foreach ($c in $s.ToCharArray()) { $ss.AppendChar($c) }
-    $ss.MakeReadOnly(); return $ss
-}
-function Wrap-Sha1B64([string]$plain) {
-    $rsa = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPublicKey($script:pubCert)
-    [Convert]::ToBase64String($rsa.Encrypt([System.Text.Encoding]::UTF8.GetBytes($plain), [System.Security.Cryptography.RSAEncryptionPadding]::OaepSHA1))
-}
-
 BeforeAll {
     . (Join-Path $PSScriptRoot '..\src\Write-Escrow.ps1')
     . (Join-Path $PSScriptRoot '..\admin\Recover-File.ps1')   # Unprotect-EscrowEntry (guarded main)
+
+    # Helper functions must be defined in BeforeAll (not at file scope, which
+    # only runs during Pester discovery and is not visible to the It blocks).
+    function New-SS([string]$s) {
+        $ss = New-Object System.Security.SecureString
+        foreach ($c in $s.ToCharArray()) { $ss.AppendChar($c) }
+        $ss.MakeReadOnly(); return $ss
+    }
+    function Wrap-Sha1B64([string]$plain) {
+        $rsa = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPublicKey($script:pubCert)
+        [Convert]::ToBase64String($rsa.Encrypt([System.Text.Encoding]::UTF8.GetBytes($plain), [System.Security.Cryptography.RSAEncryptionPadding]::OaepSHA1))
+    }
 
     $script:tmp = Join-Path $env:TEMP "curo-escrow-tests-$((New-Guid).Guid)"
     New-Item -ItemType Directory -Path $script:tmp -Force | Out-Null
