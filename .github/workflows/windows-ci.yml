@@ -185,6 +185,77 @@ jobs:
           # passed, so exit cleanly.
           exit 0
 
+      - name: E2E launcher mode (guided setup.ps1, no admin)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = (Get-Location).Path
+          $psExe = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+
+          # Self-contained copy of the tool, plus sandbox locations. %ProgramData%
+          # is redirected under RUNNER_TEMP so the escrow cert / audit / cache land
+          # in the sandbox, not on the machine.
+          $app = Join-Path $env:RUNNER_TEMP 'launcher-app'
+          New-Item -ItemType Directory -Force -Path $app | Out-Null
+          foreach ($sub in 'src','bin','config','admin') { Copy-Item (Join-Path $src $sub) $app -Recurse -Force }
+          foreach ($f in 'setup.ps1','install.ps1','VERSION') { Copy-Item (Join-Path $src $f) $app -Force }
+
+          $pd        = Join-Path $env:RUNNER_TEMP 'launcher-pd'
+          $clientOut = Join-Path $env:RUNNER_TEMP 'shared\clients.csv'
+          $escrowDir = Join-Path $env:RUNNER_TEMP 'escrow-store'
+          $pfx       = Join-Path $env:RUNNER_TEMP 'escrow.pfx'
+          $fixture   = Join-Path $src 'tests\fixtures\clients-sample.csv'
+
+          # Run setup in a CHILD process (its `exit` must not end this step) and
+          # capture ALL output so a setup.ps1 failure is fully visible.
+          $inner = "& '$app\setup.ps1' -Mode Launcher -NonInteractive " +
+                   "-ClientListPath '$clientOut' -EscrowDir '$escrowDir' -ClientSource '$fixture' " +
+                   "-PfxPath '$pfx' -PfxPassword (ConvertTo-SecureString 'ci-pfx-pw-1' -AsPlainText -Force)"
+          $cmd = "`$env:ProgramData='$pd'; $inner; exit `$LASTEXITCODE"
+          $ErrorActionPreference = 'Continue'
+          $childOut = & $psExe -NoProfile -ExecutionPolicy Bypass -Command $cmd 2>&1 | Out-String
+          $rc = $LASTEXITCODE
+          $ErrorActionPreference = 'Stop'
+          Write-Host "----- setup.ps1 (launcher) output -----"
+          Write-Host $childOut
+          Write-Host "----- exit=$rc -----"
+          if ($rc -ne 0) { throw "setup.ps1 -Mode Launcher exited $rc" }
+
+          if (-not (Test-Path (Join-Path $app 'config\settings.json')))        { throw "no launcher settings.json" }
+          if (-not (Test-Path (Join-Path $pd  'CuroPDFProtect\escrow.cer')))   { throw "no escrow public cert" }
+          if (-not (Test-Path $pfx))                                           { throw "no escrow private pfx" }
+          if (@(Import-Csv -LiteralPath $clientOut).Count -ne 2)               { throw "expected 2 published clients (1 malformed row skipped)" }
+
+          # The setup-produced config must be healthy, and the core protect chain
+          # must work against it (setup -> protect -> qpdf-decrypt with the DOB).
+          Import-Module (Join-Path $app 'src\Config.psm1')  -Force -DisableNameChecking
+          Import-Module (Join-Path $app 'src\Protect.psm1') -Force -DisableNameChecking
+          $env:ProgramData = $pd
+          $cfg = Get-CuroConfig -Path (Join-Path $app 'config\settings.json')
+          $health = Test-CuroHealth -Path (Join-Path $app 'config\settings.json')
+          if (-not $health.Healthy) { throw "post-setup health not green: $(($health.Issues | ForEach-Object { $_.Component }) -join ', ')" }
+
+          # Build a tiny PDF and protect it through the real chain.
+          $work = Join-Path $env:RUNNER_TEMP 'launcher-protect'
+          New-Item -ItemType Directory -Force -Path $work | Out-Null
+          $qpdf = $cfg.qpdf_path
+          $raw = Join-Path $work 'raw.pdf'
+          @('%PDF-1.4','1 0 obj','<< /Type /Catalog /Pages 2 0 R >>','endobj','2 0 obj','<< /Type /Pages /Kids [3 0 R] /Count 1 >>','endobj','3 0 obj','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>','endobj','trailer','<< /Root 1 0 R >>','%%EOF') | Set-Content -LiteralPath $raw -Encoding ascii
+          $doc = Join-Path $work 'doc.pdf'
+          & $qpdf $raw $doc 2>&1 | Out-Null
+          $ss = New-Object System.Security.SecureString
+          foreach ($c in '01031990'.ToCharArray()) { $ss.AppendChar($c) }   # O'Brien DOB from the fixture
+          $ss.MakeReadOnly()
+          $prompt = [pscustomobject]@{ SecurePassword=$ss; PasswordSource='dob'; ClientFileRef='C-00502'; DeleteOriginal=$false; AllowOverwrite=$false; OpenOutlook=$false; Cancelled=$false }
+          $res = Invoke-ProtectFileCore -Config $cfg -Path $doc -PromptResult $prompt
+          if (-not $res.Success) { throw "protect through setup config failed: $($res.Message)" }
+          $out = Join-Path $work 'doc_protected.pdf'
+          if (-not (Test-Path $out)) { throw "protected PDF not produced" }
+          & $qpdf --password=01031990 --decrypt $out (Join-Path $work 'dec.pdf') 2>&1 | Out-Null
+          if (($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 3)) { throw "decrypt with the DOB failed ($LASTEXITCODE)" }
+          if (@(Get-ChildItem -Path $escrowDir -Filter '*.escrow.json' -Recurse).Count -lt 1) { throw "no escrow sidecar written" }
+          Write-Host "Launcher E2E OK: guided setup -> healthy -> protect -> decrypt with DOB -> escrow sidecar."
+          exit 0
+
       - name: E2E install mode (machine-wide install + uninstall)
         run: |
           # The runner is admin, so exercise the real install path: payload
