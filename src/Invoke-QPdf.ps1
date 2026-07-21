@@ -74,15 +74,26 @@ function Protect-Pdf {
     }
 
     $userPlain = $null; if (-not $ownerPlain) { $ownerPlain = $null }
+    # Encrypt options go to qpdf via an @argfile, NOT the process command line,
+    # so the passwords never appear in the qpdf command line (which is visible
+    # in Process Explorer / tasklist). Only the temp file's PATH is on the
+    # command line. The file is written BOM-less, locked to the current user,
+    # and shredded + deleted in finally.
+    #
+    # Why an @argfile and not stdin (@-): the .NET StandardInput StreamWriter
+    # on Windows PowerShell 5.1 prepends a UTF-8 BOM, so qpdf reads the first
+    # line as the filename "<BOM>--encrypt" and rejects every following
+    # --user-password/--owner-password flag as an unrecognized argument. That
+    # made encryption fail on the real Windows binary every time.
+    #
+    # Flag form (--user-password=/--owner-password=/--bits=) is non-deprecated
+    # and, per qpdf's help, accepts any password text. In an @argfile each line
+    # is one argument, so input/output paths with spaces need no quoting.
+    $argPath = Join-Path $env:TEMP ("qpdf-{0}.args" -f ([guid]::NewGuid().Guid))
     try {
         $userPlain = ConvertFrom-SecureStringToPlain $Password
         if (-not $ownerPlain) { $ownerPlain = ConvertFrom-SecureStringToPlain $OwnerPassword }
-        # Flag form (--user-password=/--owner-password=/--bits=), not the
-        # deprecated positional "--encrypt user owner 256". The flag form is
-        # non-deprecated and, per qpdf's own help, "allows you to use any
-        # text as the password" - so a password that could look like an
-        # option is unambiguous. Each line of the @- argfile is one argument.
-        $argFile = @(
+        $argText = @(
             '--encrypt'
             "--user-password=$userPlain"
             "--owner-password=$ownerPlain"
@@ -91,35 +102,35 @@ function Protect-Pdf {
             $inArg
             $outArg
         ) -join "`n"
+        [System.IO.File]::WriteAllText($argPath, $argText, (New-Object System.Text.UTF8Encoding($false)))
+        # Best-effort: restrict the argfile to the current user before qpdf
+        # opens it. If this fails (unusual ACL environment), the immediate
+        # shred + delete below is still the real protection.
+        try {
+            $acl = Get-Acl -LiteralPath $argPath
+            $acl.SetAccessRuleProtection($true, $false)
+            $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+            $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($me, 'FullControl', 'Allow')))
+            Set-Acl -LiteralPath $argPath -AclObject $acl
+        } catch { }
 
         $pinfo = New-Object System.Diagnostics.ProcessStartInfo
         $pinfo.FileName = $QpdfPath
-        $pinfo.Arguments = '@-'
+        $pinfo.Arguments = ConvertTo-NativeArgString ('@' + $argPath)
         $pinfo.UseShellExecute = $false
-        $pinfo.RedirectStandardInput = $true
         $pinfo.RedirectStandardError = $true
         $pinfo.RedirectStandardOutput = $true
         $pinfo.CreateNoWindow = $true
         $proc = [System.Diagnostics.Process]::Start($pinfo)
-        # Write the argfile as BOM-less UTF-8 bytes straight to the pipe.
-        # The default StandardInput StreamWriter on Windows PowerShell 5.1
-        # emits a UTF-8 BOM; qpdf then reads the first line as the filename
-        # "<BOM>--encrypt" instead of the --encrypt option, and rejects every
-        # following --user-password/--owner-password flag as an unrecognized
-        # argument. Writing raw no-BOM bytes is what makes encryption work at
-        # all on the real Windows binary.
-        $enc = New-Object System.Text.UTF8Encoding($false)
-        $bytes = $enc.GetBytes($argFile)
-        $stdin = $proc.StandardInput.BaseStream
-        $stdin.Write($bytes, 0, $bytes.Length)
-        $stdin.Flush()
-        [Array]::Clear($bytes, 0, $bytes.Length)
-        $proc.StandardInput.Close()
         $stderr = $proc.StandardError.ReadToEnd()
         [void]$proc.StandardOutput.ReadToEnd()
         $proc.WaitForExit()
         $code = $proc.ExitCode
     } finally {
+        if (Test-Path -LiteralPath $argPath) {
+            try { [System.IO.File]::WriteAllText($argPath, (' ' * 1024)) } catch { }
+            Remove-Item -LiteralPath $argPath -Force -ErrorAction SilentlyContinue
+        }
         Remove-Variable userPlain -ErrorAction SilentlyContinue
         Remove-Variable ownerPlain -ErrorAction SilentlyContinue
         [GC]::Collect()
