@@ -77,7 +77,23 @@ function Protect-Pdf {
     try {
         $userPlain = ConvertFrom-SecureStringToPlain $Password
         if (-not $ownerPlain) { $ownerPlain = ConvertFrom-SecureStringToPlain $OwnerPassword }
-        $argFile = @('--encrypt', $userPlain, $ownerPlain, '256', '--', $inArg, $outArg) -join "`n"
+        # Flag form (--user-password=/--owner-password=/--bits=), not the
+        # deprecated positional "--encrypt user owner 256". qpdf 11.9.x
+        # rejects the positional form for some passwords (e.g. a base64
+        # owner password with '/'), and the flag form is also unambiguous
+        # for any password that could otherwise look like an option. Each
+        # line of the @- argfile is one argument, so the value after the
+        # first '=' is taken verbatim - trailing '=' and internal '/' are
+        # safe.
+        $argFile = @(
+            '--encrypt'
+            "--user-password=$userPlain"
+            "--owner-password=$ownerPlain"
+            '--bits=256'
+            '--'
+            $inArg
+            $outArg
+        ) -join "`n"
 
         $pinfo = New-Object System.Diagnostics.ProcessStartInfo
         $pinfo.FileName = $QpdfPath
