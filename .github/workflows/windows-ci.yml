@@ -438,20 +438,27 @@ jobs:
           # A [securestring] parameter cannot be bound from a command-line string,
           # so -PfxPassword can never be passed through an exe - by design: a
           # password in argv is visible in the process list (DECISIONS #20), and
-          # setup.ps1 prompts for it interactively instead. Generate the keypair
-          # first so --setup takes its documented "cert already present" skip path
-          # and the rest of setup is still exercised end to end through the exe.
+          # setup.ps1 prompts for it interactively instead. Escrow keygen also
+          # cannot be done up front (Rotate-EscrowKey.ps1 loads the config that
+          # setup itself creates). So: bootstrap once by calling the PAYLOAD's
+          # setup.ps1 with a real SecureString...
           $psExe = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
-          $keygen = "`$env:ProgramData='$pd'; & '$root\admin\Rotate-EscrowKey.ps1' " +
-                    "-NewPrivateKeyPath '$pfx' -PfxPassword (ConvertTo-SecureString 'exe-pfx-pw-1' -AsPlainText -Force); exit `$LASTEXITCODE"
+          $boot = "`$env:ProgramData='$pd'; & '$root\setup.ps1' -Mode Launcher -NonInteractive " +
+                  "-ClientListPath '$clientOut' -EscrowDir '$escrowDir' -ClientSource '$fixture' " +
+                  "-PfxPath '$pfx' -PfxPassword (ConvertTo-SecureString 'exe-pfx-pw-1' -AsPlainText -Force); exit `$LASTEXITCODE"
           $ErrorActionPreference = 'Continue'
-          $kgOut = & $psExe -NoProfile -ExecutionPolicy Bypass -Command $keygen 2>&1 | Out-String
-          if ($LASTEXITCODE -ne 0) { throw "escrow keygen failed: $kgOut" }
-          if (-not (Test-Path (Join-Path $pd 'CuroPDFProtect\escrow.cer'))) { throw "keygen produced no escrow.cer" }
+          $bootOut = & $psExe -NoProfile -ExecutionPolicy Bypass -Command $boot 2>&1 | Out-String
+          if ($LASTEXITCODE -ne 0) { throw "payload setup bootstrap failed: $bootOut" }
+          if (-not (Test-Path (Join-Path $pd 'CuroPDFProtect\escrow.cer'))) { throw "bootstrap produced no escrow.cer" }
 
+          # ...then re-run setup THROUGH THE EXE. The cert now exists, so this
+          # takes setup's documented "already present" skip path - which is
+          # exactly what proves the exe forwards its arguments and that a repeat
+          # setup is idempotent rather than destructive.
           $setupOut = & $exe --setup -Mode Launcher -NonInteractive `
               -ClientListPath $clientOut -EscrowDir $escrowDir -ClientSource $fixture 2>&1 | Out-String
           $rc = $LASTEXITCODE
+          if ($setupOut -notmatch 'Escrow certificate already present') { throw "exe --setup did not reach the idempotent skip path:`n$setupOut" }
           Write-Host "----- exe --setup output -----"; Write-Host $setupOut; Write-Host "----- exit=$rc -----"
           $ErrorActionPreference = 'Stop'
           if ($rc -ne 0) { throw "exe --setup exited $rc" }
