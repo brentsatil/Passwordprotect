@@ -53,7 +53,8 @@ The launcher no longer disappears silently on failure:
 
 | Task | Where |
 |------|-------|
-| First-time setup on a machine | `setup.ps1` (guided; see `docs\ADMIN-SETUP.md`) |
+| Hand the tool to a teammate | `PasswordProtect.exe` (one portable file; see `docs\ADMIN-SETUP.md`) |
+| First-time setup on a machine | `setup.ps1`, or `PasswordProtect.exe --setup` |
 | Roll out to the team | `docs\PILOT-CHECKLIST.md` |
 | Staff quick reference | `docs\CHEATSHEET.md` |
 | Uninstall | `uninstall.ps1` |
@@ -101,6 +102,18 @@ The launcher no longer disappears silently on failure:
 
 - Target: Windows 10 / 11, PowerShell 5.1 (ships with Windows — do NOT
   require PS 7).
+- **Portable exe (easiest to hand out): `PasswordProtect.exe`.** One self-contained
+  file (~12 MB) built from `launcher\`. It embeds this whole tool, extracts it to
+  `%LOCALAPPDATA%\CuroPDFProtect\app\<payload-id>\` on first run, and runs the
+  identical scripts — same escrow, same audit log, same PDF-only rule. Nothing to
+  keep together and no console window. Build it with
+  `dotnet publish launcher\CuroPdfProtect.Launcher -c Release -o publish`, or
+  download the `PasswordProtect-portable-exe` artifact from a manual `windows-ci`
+  run. Verbs: `--setup`, `--diagnose`, `--verify`, `--version`.
+  *If staff see "running scripts is disabled on this system", the exe will not fix
+  it* — that is Group Policy / AppLocker / WDAC, which overrides the
+  `-ExecutionPolicy Bypass` the tool already passes. Run `--diagnose` to identify
+  which, then sign the scripts or have IT allowlist them.
 - **Setup: run `setup.ps1` once per machine** — guided, and either
   **Install** mode (admin; adds the right-click menu; installs to
   `C:\Program Files\CuroPDFProtect\`) or **Launcher** mode (no admin;
@@ -164,6 +177,8 @@ tests\
   *.Tests.ps1                   Pester suites (all gate CI)
   fixtures\
     clients-sample.csv          sample client list used by tests
+launcher\                       portable-exe wrapper around THIS tool (net48;
+  CuroPdfProtect.Launcher\      embeds src\+bin\, extracts, runs PasswordProtect.ps1)
 app\                            EXPLORATORY .NET 8 / WPF prototype - NOT the supported
                                 tool, no escrow, no audit log. See app\README.md.
 ```

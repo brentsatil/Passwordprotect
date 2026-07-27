@@ -20,6 +20,47 @@ unreachable.
 
 ---
 
+## Mode 0 - Portable exe (easiest to hand out)
+
+Best when you just want to give someone a file. `PasswordProtect.exe` is one
+self-contained ~12 MB file containing this entire tool. There is no folder to keep
+together and no console window - and it runs the *same* scripts, so escrow, the
+audit log and the PDF-only rule all still apply.
+
+Get it by either:
+
+- downloading the `PasswordProtect-portable-exe` artifact from a manual run of the
+  `windows-ci` workflow, or
+- building it: `dotnet publish launcher\CuroPdfProtect.Launcher -c Release -o publish`
+
+Then, once per machine:
+
+1. Copy `PasswordProtect.exe` anywhere (a shared drive is fine).
+2. Run `PasswordProtect.exe --setup` and answer the prompts. It asks for the escrow
+   `.pfx` password rather than taking it as an argument, deliberately - a password on
+   a command line is visible in the process list.
+3. Day to day, staff **drag PDFs onto the exe** or double-click it for the drop window.
+
+Useful verbs:
+
+| Command | What it does |
+|---|---|
+| `PasswordProtect.exe --setup` | first-time setup on this machine |
+| `PasswordProtect.exe --diagnose` | reports *why* scripts may be blocked here (see below) |
+| `PasswordProtect.exe --verify` | re-extracts and hash-checks the embedded tool |
+| `PasswordProtect.exe --version` | payload id and cache folder |
+
+**If staff see a red "running scripts is disabled on this system", the exe cannot fix
+it.** The tool already passes `-ExecutionPolicy Bypass`; if scripts are still blocked
+then Group Policy, AppLocker or WDAC is responsible and *overrides* that flag. Run
+`--diagnose` and send the output to IT: the fix is an allowlist, or Authenticode-signing
+the scripts (see the code-signing note in `docs\DECISIONS.md` #14).
+
+The exe supplements the two modes below - it does not replace them. Use Mode B if you
+want the Explorer right-click menu.
+
+---
+
 ## Mode A - Launcher (no admin rights needed)
 
 Best for a small team where you don't want to touch each machine as an

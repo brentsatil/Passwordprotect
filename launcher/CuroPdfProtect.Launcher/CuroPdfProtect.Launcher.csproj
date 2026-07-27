@@ -1,0 +1,93 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Single-file portable launcher for the SUPPORTED PowerShell tool at the repo
+    root. It embeds the whole tool (scripts + qpdf payload), extracts it to a
+    per-user cache on first run, and hands off to PasswordProtect.ps1 exactly as
+    PasswordProtect.cmd does today.
+
+    Deliberately net48, NOT net8.0: .NET Framework 4.8 ships with Windows 10/11,
+    so this exe carries no runtime and lands at ~12 MB (essentially just the
+    bin\ payload) instead of the ~150 MB a self-contained .NET 8 build produces.
+    A net48 assembly with embedded resources is already ONE file - there is no
+    PublishSingleFile / self-contained switch to set, and none should be added.
+  -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <AssemblyName>PasswordProtect</AssemblyName>
+    <RootNamespace>CuroPdfProtect.Launcher</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Deterministic>true</Deterministic>
+    <Version>1.0.0</Version>
+    <AssemblyTitle>Curo PDF Protector</AssemblyTitle>
+    <Product>Curo PDF Protector</Product>
+    <Company>Curo Financial Services</Company>
+    <Description>Portable launcher for the Curo PDF Protector PowerShell tool.</Description>
+    <!-- No satellite assemblies / no extra files beside the exe. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+
+  <!--
+    Lets a net48 project build on any machine/runner without the .NET Framework
+    4.8 developer pack installed. Build-time only; nothing ships from it.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!--
+    The payload. src\, admin\, config\ and bin\ are flat directories, so a flat
+    logical name is unambiguous: PPAYLOAD.<dir>.<filename>, where <dir> is the
+    first dot-delimited segment and everything after it is the filename (which
+    may itself contain dots, e.g. PPAYLOAD.src.Config.psm1). "root" means the
+    repository root.
+
+    VERSION is NOT optional - src\Write-Escrow.ps1 reads it for the sidecar's
+    tool_version, and its absence surfaces as a confusing ESCROW_OFFLINE.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\PasswordProtect.ps1">
+      <LogicalName>PPAYLOAD.root.PasswordProtect.ps1</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\setup.ps1">
+      <LogicalName>PPAYLOAD.root.setup.ps1</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\install.ps1">
+      <LogicalName>PPAYLOAD.root.install.ps1</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\uninstall.ps1">
+      <LogicalName>PPAYLOAD.root.uninstall.ps1</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\VERSION">
+      <LogicalName>PPAYLOAD.root.VERSION</LogicalName>
+    </EmbeddedResource>
+
+    <EmbeddedResource Include="..\..\src\*.*">
+      <LogicalName>PPAYLOAD.src.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\admin\*.*">
+      <LogicalName>PPAYLOAD.admin.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\config\*.*">
+      <LogicalName>PPAYLOAD.config.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\bin\*.*">
+      <LogicalName>PPAYLOAD.bin.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <!--
+    Optional Authenticode signing, shared with the app/ prototype's build hook.
+    Pass -p:SignCertThumbprint=... or -p:SignCertPfx=...+-p:SignCertPassword=...
+    No-op when no certificate is supplied.
+  -->
+  <Import Project="..\..\app\PasswordProtect.Build\Sign.targets" />
+
+</Project>
