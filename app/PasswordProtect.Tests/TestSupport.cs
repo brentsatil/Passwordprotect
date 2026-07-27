@@ -11,6 +11,12 @@ internal static class TestBinaries
     public static bool Available =>
         OperatingSystem.IsWindows() && File.Exists(Path.Combine(NativeBinDir, "qpdf.exe"));
 
+    /// <summary>The 7z engine is optional: the repo's top-level bin\ stopped bundling
+    /// 7z.exe when the business flow went PDF-only, so 7z round-trips run only when
+    /// a 7z.exe is present beside qpdf.</summary>
+    public static bool SevenZipAvailable =>
+        Available && File.Exists(Path.Combine(NativeBinDir, "7z.exe"));
+
     public static IBinaryProvider Provider() => new DirectoryBinaryProvider(NativeBinDir, verify: false);
 }
 

@@ -102,7 +102,7 @@ public class PasswordEditTests
     [Fact]
     public async Task SevenZip_change_and_remove_password()
     {
-        if (!TestBinaries.Available) return;
+        if (!TestBinaries.SevenZipAvailable) return;
         var provider = TestBinaries.Provider();
         string seven = await provider.GetSevenZipPathAsync();
         using var dir = new TempDir();

@@ -69,7 +69,7 @@ public class EngineRoundTripTests
     [Fact]
     public async Task SevenZip_protect_then_verify_and_reject_wrong_password()
     {
-        if (!TestBinaries.Available) return;
+        if (!TestBinaries.SevenZipAvailable) return;
 
         var provider = TestBinaries.Provider();
         string seven = await provider.GetSevenZipPathAsync();
@@ -95,7 +95,7 @@ public class EngineRoundTripTests
     [Fact]
     public async Task Output_exists_without_overwrite_is_refused()
     {
-        if (!TestBinaries.Available) return;
+        if (!TestBinaries.SevenZipAvailable) return;
 
         var provider = TestBinaries.Provider();
         string seven = await provider.GetSevenZipPathAsync();
