@@ -209,7 +209,35 @@ Every deployed tool generates tickets. Expect:
 
 ---
 
-## 12. Over-blocking productivity
+## 12. A second implementation on `main` bypasses these controls
+
+Every mitigation in this register describes the PowerShell tool at the repo root. The
+exploratory .NET app under `app\` (merged 2026-07-27) implements **none** of the escrow,
+audit, PDF-only or command-line-password controls above. Every file it protects — the
+ordinary `_protected` copy included, not just the opt-in in-place overwrite — is
+AES-256 encrypted with no recovery record and no audit entry, so a forgotten password
+is unrecoverable and nothing shows the operation happened. Ticking *Overwrite in place*
+(off by default, behind a "cannot be undone" confirm) additionally destroys the
+plaintext original, leaving no readable copy at all.
+
+The sharpest edge is that both register an Explorer verb with the **same label**
+("Protect with password"), so on a machine with both, the compliant and non-compliant
+paths are visually indistinguishable — and `uninstall.ps1` removes only the root tool's.
+
+**Mitigation**
+
+- Documented, not engineered: `app\README.md` and the root `README.md` both state the
+  app is not the supported tool and not for client files.
+- Do not publish or distribute `app\PasswordProtect.exe` to staff. Nothing builds or
+  ships it automatically; it requires a deliberate `dotnet publish`.
+- Resolve the keep / scope / remove decision — `docs\DECISIONS.md` entry 25. Until then
+  treat any `app\`-produced file as unrecoverable and unlogged.
+- If the app is ever kept, the minimum bar before any staff use is escrow + audit
+  parity, a distinct context-menu label, and `uninstall.ps1` clearing both entries.
+
+---
+
+## 13. Over-blocking productivity
 
 If the tool is slow, the prompt is fiddly, or the UX is ugly, staff
 will bypass it and send plaintext files instead.

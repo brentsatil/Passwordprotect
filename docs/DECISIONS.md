@@ -204,3 +204,70 @@ sign-off**, with the option to raise the manual-password minimum from 10 to 12.
 but the standalone launcher (`PasswordProtect.ps1`) invokes the picker with
 `-RequireClientDob`, which *does* require a client/DOB per file. Brent/Ian to
 decide the intended behaviour for the launcher and align the code or entry 1.
+
+---
+
+# Two implementations on main (2026-07-27)
+
+## 25. The `app\` .NET prototype - **decision required**
+
+**Status: recorded, not resolved.** The `claude/password-protected-docs-e09cmy`
+branch was merged into `main`, adding a second, independent implementation under
+`app\`: a .NET 8 / WPF desktop app (qpdf for PDF, from-scratch MS-OFFCRYPTO for
+Office, 7-Zip fallback) with its own CI (`app-ci.yml`). It was written in June,
+**before** the PDF-only rework and before the rollout hardening in entries 18-22.
+It was merged to preserve the work, not to ship it.
+
+**The PowerShell tool at the repo root remains the supported product.** Nothing in
+`docs\ADMIN-SETUP.md`, `docs\PILOT-CHECKLIST.md` or `docs\RUNBOOK.md` changes.
+
+**Why the app cannot be used on client files as it stands.** An audit of the merged
+code established (file/line evidence in the commit that added this entry):
+
+1. **No escrow, no audit log.** The protect path writes no sidecar and logs no event
+   (`Batch\BatchRunner.cs`, `Engines\QpdfProtector.cs`). This is **unconditional** -
+   the default `<name>_protected.pdf` path is as affected as any other, so every file
+   the app protects is already unrecoverable (`admin\Recover-File.ps1` has no sidecar
+   to read) with no record that the operation occurred. Contradicts entry 5
+   (fail-closed escrow) and entry 11 (7-year audit).
+   *Aggravating factor:* with *Overwrite in place* the plaintext original is replaced
+   too, so a forgotten password destroys the only readable copy. That option is at
+   least opt-in - off by default and behind an explicit "cannot be undone" confirm
+   (`AppServices.cs`, `MainWindow.xaml.cs`) - but neither gate is an escrow gate,
+   because there is no escrow code to fail closed on.
+2. **Out of PDF-only scope.** Office documents are encrypted by hand-rolled
+   MS-OFFCRYPTO code that needs no external binary and is wired into Explorer for
+   `.docx/.xlsx/.pptx`. Entry 8 / `RISK.md` #5 scope v1 to PDF deliberately.
+3. **Unauthenticated decryption.** `OfficeCrypto.Encrypt` writes the `dataIntegrity`
+   HMAC; `TryDecrypt` never verifies it, so tampering or corruption is undetected and
+   *Change*/*Remove password* can emit a corrupted document as a success.
+4. **Crypto is unproven.** The Office tests are self-consistency only (synthetic zip,
+   encrypt-then-decrypt with the same code). No known-answer vector, no Office-produced
+   fixture, no independent cross-check.
+5. **Passwords on the command line.** Every engine passes the password as a child
+   process argument, reversing the `@argfile` decision in entry 20.
+6. **Weaker supply chain.** NuGet restores unlocked with audit warnings non-blocking
+   (`OpenMcdf 2.3.1` carries two advisories; the fix is a 3.x API port, not a bump).
+   Entry 22 holds the PowerShell half to bidirectional SHA-256 pinning.
+7. **Duplicate Explorer verb.** `ContextMenuRegistrar.cs` registers a per-user entry
+   labelled *"Protect with password"* - character-identical to the `HKLM` verb from
+   `install.ps1`. They are additive, so on a machine with both a staff member sees two
+   indistinguishable entries and only one escrows. `uninstall.ps1` leaves the app's
+   entry behind, and `Get-PDFProtectDiagnostics.ps1` does not probe for it.
+8. **Shared `bin\` coupling.** The app embeds the repo-root `bin\` as its payload, so
+   the PowerShell tool's binary curation silently reshapes it. `7z.exe` was removed
+   when the flow went PDF-only, so the app's 7-Zip engine is **dead in any build from
+   `main`** while still being the route for every non-PDF, non-Office file.
+
+**The decision (Brent/Ian).** Choose one, then update this entry:
+
+- **Remove** `app\` and `app-ci.yml` - the history is preserved on the branch and in
+  this merge. Cheapest; loses the GUI/batch/naming work.
+- **Scope** it explicitly to non-client, non-regulated use, keeping the warnings in
+  `app\README.md` and leaving items 1-8 unfixed.
+- **Invest**: bring it up to the root tool's guarantees - escrow + audit at minimum
+  (items 1-2), then 3-8. This is substantial and duplicates a product that already
+  passes its rollout gates.
+
+Until this is decided, `app\README.md` and the root `README.md` both carry an explicit
+"not the supported tool, not for client files" warning.

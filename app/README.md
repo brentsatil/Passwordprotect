@@ -1,9 +1,33 @@
 # PasswordProtect — native .NET 8 app
 
+> ## Status: EXPLORATORY — not the supported tool, and not safe for client files
+>
+> **The supported product for Curo is the PowerShell tool in the repo root** (see the
+> root `README.md`, `docs/ADMIN-SETUP.md`, `docs/PILOT-CHECKLIST.md`). This app is an
+> earlier, parallel prototype that predates the PDF-only rework and the rollout
+> hardening. It was merged to `main` to preserve the work, **not** to ship it.
+>
+> It does **not** implement the guarantees the firm's process depends on:
+>
+> | Guarantee (root tool) | This app |
+> |---|---|
+> | Fail-closed RSA escrow — no protected file without a recovery record | **None.** No sidecar is ever written. |
+> | 7-year JSONL audit log (Corps Act s.988A / ASIC RG 104) | **None.** No event is ever logged. |
+> | PDF-only in v1 business mode | Also encrypts Office documents. |
+> | Client list / DOB passwords from `clients.csv` | Not read; passwords are typed free-form. |
+> | Passwords kept off child-process command lines | Passed as process arguments. |
+>
+> **Consequence:** if someone protects a client file with this app and forgets the
+> password, `admin\Recover-File.ps1` **cannot recover it** — there is no escrow record —
+> and no audit entry exists to show the operation happened. With *Overwrite in place*
+> ticked, the plaintext original is replaced, so the data is permanently gone.
+>
+> Do not use it on real client documents. Whether this app is fixed, scoped to
+> non-client use, or removed is an open decision — see entry 25 in `docs/DECISIONS.md`.
+
 A self-contained Windows desktop app that bulk password-protects and re-keys
-documents. It is the native successor to the PowerShell drag-and-drop tool in the
-repo root; it reuses the same bundled `qpdf.exe` / `7z.exe` and the same
-encryption behaviour, with a real GUI, smart naming, and password editing.
+documents, with a GUI, smart naming, and password editing. It shares the repo's
+bundled `qpdf.exe` but is otherwise independent of the root tool.
 
 ## What it does
 
@@ -12,14 +36,29 @@ encryption behaviour, with a real GUI, smart naming, and password editing.
   never stops the rest.
 - **Per-type encryption (your choice):**
   - PDF → native AES-256 via qpdf.
-  - Word/Excel/PowerPoint → **native ECMA-376 agile encryption** (a real
-    password-protected `.docx`/`.xlsx`/`.pptx` that opens in Office), or `.7z`.
+  - Word/Excel/PowerPoint → **native ECMA-376 agile encryption**, or `.7z`.
     Implemented from scratch in `OfficeCrypto` per MS-OFFCRYPTO (AES-256-CBC +
     SHA-512 + HMAC via `System.Security.Cryptography`, CFB container via OpenMcdf) —
-    NPOI's agile write path is broken on .NET, so it is not used. CI verifies the
-    encrypt→decrypt round-trip and wrong-password rejection; **confirm one file opens
-    in real Microsoft Office** as a manual check before relying on it (see below).
-  - Anything else → AES-256 `.7z`.
+    NPOI's agile write path is broken on .NET, so it is not used.
+
+    **Caveats on this hand-rolled implementation — read before relying on it:**
+    - The tests prove **self-consistency only**: they encrypt and decrypt with this
+      same code over a synthetic zip (`OfficeCryptoTests.MakeFakeOoxmlPackage`). There
+      is no known-answer vector, no fixture produced by Microsoft Office, and no
+      cross-check against an independent implementation. A symmetric mistake would
+      still pass. **Confirm a file opens in real Microsoft Office** before trusting it.
+    - `Encrypt` writes the MS-OFFCRYPTO `dataIntegrity` HMAC, but `TryDecrypt` never
+      verifies it, so decryption is **unauthenticated** — a tampered or corrupted file
+      decrypts without error (AES-CBC with `PaddingMode.None` raises nothing). This
+      matters most on *Change*/*Remove password*, which can therefore emit a silently
+      corrupted document as a successful result.
+    - The container omits the `\x06DataSpaces` storage that the spec describes. This
+      is a conformance gap rather than a known breakage, which is exactly why the
+      manual Office check above is not optional.
+  - Anything else → AES-256 `.7z` — **currently non-functional.** `7z.exe` was removed
+    from the repo's `bin\` when the business flow went PDF-only, and the app embeds
+    that folder as its payload, so no 7-Zip binary is shipped. These jobs fail per
+    file with "The system cannot find the file specified". The 7z tests self-skip.
 - **Smart naming:** an editable template with tokens — `{OriginalName}`, `{Ext}`,
   `{Date}`, `{DDMMYYYY}`, `{YYYYMMDD}`, `{Seq}`, plus `{DetectedName}` /
   `{DetectedDate}` pulled (best-effort) from inside the document. **Preview**
@@ -37,7 +76,14 @@ encryption behaviour, with a real GUI, smart naming, and password editing.
 
 It is a single portable `.exe` — copy it to a shared drive and run it. No install,
 no .NET runtime needed (self-contained). On first run it extracts the bundled
-qpdf/7z to a hash-verified per-user cache (`%LOCALAPPDATA%\PasswordProtect\bin`).
+binaries to a per-user cache (`%LOCALAPPDATA%\PasswordProtect\bin`), re-hashing each
+one against the embedded `HASHES.txt` on every start.
+
+Two gaps in that provisioning worth knowing: the cache lives in a user-writable
+directory, and `GetSevenZipPathAsync` returns a `7z.exe` path from it **without any
+existence or hash check** — so dropping an arbitrary `7z.exe` there would re-enable the
+archive path with an unpinned binary. Only files listed in the embedded `HASHES.txt`
+are ever extracted or verified.
 
 Right-click menu (per-user, no admin):
 
@@ -59,9 +105,15 @@ dotnet publish app/PasswordProtect.App/PasswordProtect.App.csproj `
   -p:EnableCompressionInSingleFile=true -o publish
 ```
 
-CI (`.github/workflows/app-ci.yml`, windows-latest) runs the tests (incl. real
-qpdf/7z/Office round-trips), compiles the WPF app, and verifies the portable exe
-publishes on every push.
+CI (`.github/workflows/app-ci.yml`, windows-latest) runs the tests, compiles the WPF
+app, and verifies the portable exe publishes on every push. Note what the suite does
+**not** cover: the 7z round-trips self-skip (no `7z.exe` in `bin\`), the Office tests
+are self-consistency only (see the caveats above), and nothing asserts Microsoft Office
+compatibility. Dependencies are restored unlocked and NuGet audit warnings do not fail
+the build — `OpenMcdf 2.3.1` currently carries two advisories
+(GHSA-5qwm-7pvp-w988, GHSA-jxpf-xq2m-q525; an infinite-loop DoS on malformed compound
+files, reachable from the *Change*/*Remove password* path and first fixed in the 3.x
+API, which is a port rather than a version bump).
 
 ## Code signing (recommended reading)
 
@@ -99,8 +151,13 @@ publishers. For this portable, shared-drive deployment:
 
 ## Manual verification checklist (what CI can't click)
 
-- Launch the exe; drag a PDF, a `.docx`, and a `.txt`; set a password; **Apply**.
-- Confirm the protected PDF and `.docx` open in Acrobat/Word with the password,
-  and the `.txt` became a password-protected `.7z`.
-- Try **Change password** then **Remove password** on those outputs.
-- Run `--register-context-menu`, right-click a PDF in Explorer, confirm the verb.
+- Launch the exe; drag a PDF and a `.docx`; set a password; **Apply**. (A `.txt` will
+  fail — the 7-Zip engine has no binary; see above.)
+- Confirm the protected PDF and `.docx` open in Acrobat/**real Microsoft Word** with
+  the password. The `.docx` check is the one the test suite cannot do for you.
+- Try **Change password** then **Remove password** on those outputs, and confirm the
+  result still opens — decryption is unauthenticated, so corruption would be silent.
+- Run `--register-context-menu`, right-click a PDF in Explorer, confirm the verb. On a
+  machine that also ran the root tool's `install.ps1`, expect **two identically
+  labelled "Protect with password" entries** — they are additive, and only the root
+  tool's writes an escrow record. `uninstall.ps1` does not remove this app's entry.

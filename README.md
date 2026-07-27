@@ -7,6 +7,13 @@ matching Outlook shortcut protects-and-attaches in one step.
 
 Password recovery is guaranteed via RSA key escrow. No password is ever logged.
 
+> **Two implementations live in this repo.** Everything described in this README and in
+> `docs\` is the **PowerShell tool at the repo root — the supported product.** A second,
+> exploratory .NET 8 / WPF app sits under `app\`; it predates the PDF-only rework, has
+> **no escrow and no audit log**, and must not be used on client files. See
+> `app\README.md` and entry 25 in `docs\DECISIONS.md`. Statements below describe the
+> root tool unless they say otherwise.
+
 ## Business launcher
 
 Double-click **`PasswordProtect.cmd`** to open the same business protection flow
@@ -62,7 +69,9 @@ The launcher no longer disappears silently on failure:
 
 - **PDF path:** real PDF AES-256 encryption via `qpdf`. Output opens in any
   viewer (Adobe, Edge, Preview) with the password.
-- **Non-PDF files:** refused in v1 business mode.
+- **Non-PDF files:** refused in v1 business mode. (This is the root tool's rule. The
+  exploratory `app\` does encrypt Office documents — one of the reasons it is not the
+  supported path.)
 - **Client picker** with type-ahead over `clients.csv`, published from the
   master client spreadsheet. Selecting a client auto-fills their DOB as
   password in `DDMMYYYY` format (no separators).
@@ -100,7 +109,10 @@ The launcher no longer disappears silently on failure:
   SHA-256 hashes; **all** binaries are verified at install, and a tampered or
   unpinned binary is refused.
 - Shell integration (Install mode): `HKLM\Software\Classes\*\shell\...`
-  (per-machine — new staff don't need per-user setup).
+  (per-machine — new staff don't need per-user setup). If the `app\` prototype has also
+  been registered on a machine it adds its own **identically labelled** per-user entry
+  under `HKCU\...\SystemFileAssociations`; the two are additive and only this one
+  escrows. `uninstall.ps1` removes only the `HKLM` entries.
 - Small team? Follow `docs\PILOT-CHECKLIST.md`. GPO startup-script deployment
   and AD "ring" groups (`install.ps1 -SourcePath \\deploy$\...`) remain
   available for larger, IT-managed estates.
@@ -152,4 +164,9 @@ tests\
   *.Tests.ps1                   Pester suites (all gate CI)
   fixtures\
     clients-sample.csv          sample client list used by tests
+app\                            EXPLORATORY .NET 8 / WPF prototype - NOT the supported
+                                tool, no escrow, no audit log. See app\README.md.
 ```
+
+Two CI workflows run on every push: `windows-ci.yml` gates the PowerShell tool
+(the product) and `app-ci.yml` builds and tests the `app\` prototype.

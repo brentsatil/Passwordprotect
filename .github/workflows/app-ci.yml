@@ -1,10 +1,19 @@
 name: app-ci
 
-# Builds and tests the native .NET 8 PasswordProtect app on a REAL Windows host.
-# PasswordProtect.Core is WPF-free, so the whole suite — pure logic plus real
-# qpdf/7z encryption round-trips — runs headlessly with `dotnet test`. The WPF
-# UI cannot be click-tested headlessly; it is covered by building it and by unit-
-# testing the view-model/batch layer directly (see the build job below).
+# Builds and tests the EXPLORATORY .NET 8 PasswordProtect app on a REAL Windows host.
+# This is not the supported product - see app/README.md and docs/DECISIONS.md #25.
+# PasswordProtect.Core is WPF-free, so the suite runs headlessly with `dotnet test`.
+#
+# Be precise about what this proves, and what it does not:
+#   * REAL: qpdf encrypt/decrypt round-trips, naming, batch, detection, pure logic.
+#   * SELF-CONSISTENT ONLY: the Office (MS-OFFCRYPTO) tests encrypt and decrypt with
+#     the same code over a synthetic zip. Nothing here asserts that a file opens in
+#     Microsoft Office - that stays a manual check.
+#   * SKIPPED: the 7z round-trips. bin/ no longer bundles 7z.exe (the flow went
+#     PDF-only), so TestBinaries.SevenZipAvailable is false and those tests no-op.
+#   * NOT GATED: NuGet audit warnings (NU1902) do not fail the build.
+# The WPF UI cannot be click-tested headlessly; it is covered by building it and by
+# unit-testing the view-model/batch layer directly (see the build job below).
 
 on:
   push:
@@ -29,7 +38,7 @@ jobs:
       - name: Build (Release)
         run: dotnet build app/PasswordProtect.Tests/PasswordProtect.Tests.csproj -c Release --no-restore
 
-      - name: Test (real qpdf/7z round-trips + pure logic)
+      - name: Test (real qpdf round-trips + pure logic; Office self-consistency; 7z skipped)
         run: >
           dotnet test app/PasswordProtect.Tests/PasswordProtect.Tests.csproj
           -c Release --no-build
