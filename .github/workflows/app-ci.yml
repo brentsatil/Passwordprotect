@@ -1,0 +1,87 @@
+name: app-ci
+
+# Builds and tests the native .NET 8 PasswordProtect app on a REAL Windows host.
+# PasswordProtect.Core is WPF-free, so the whole suite — pure logic plus real
+# qpdf/7z encryption round-trips — runs headlessly with `dotnet test`. The WPF
+# UI cannot be click-tested headlessly; it is covered by building it and by unit-
+# testing the view-model/batch layer directly (see the build job below).
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore app/PasswordProtect.Tests/PasswordProtect.Tests.csproj
+
+      - name: Build (Release)
+        run: dotnet build app/PasswordProtect.Tests/PasswordProtect.Tests.csproj -c Release --no-restore
+
+      - name: Test (real qpdf/7z round-trips + pure logic)
+        run: >
+          dotnet test app/PasswordProtect.Tests/PasswordProtect.Tests.csproj
+          -c Release --no-build
+          --logger "trx;LogFileName=app-test-results.trx"
+          --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-test-results
+          path: TestResults/**/*.trx
+          if-no-files-found: ignore
+
+  # The WPF UI can't be click-tested headlessly, but it MUST compile. This job
+  # builds it (framework-dependent, fast) so XAML/code-behind errors fail CI.
+  build-app:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build WPF app (Release)
+        run: dotnet build app/PasswordProtect.App/PasswordProtect.App.csproj -c Release
+
+  # Proves the portable single-file self-contained exe actually publishes and
+  # links every push (the publish itself is the test). The ~150 MB artifact is
+  # only uploaded on a manual run to avoid bloating routine pushes.
+  publish:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Publish portable single-file exe
+        run: >
+          dotnet publish app/PasswordProtect.App/PasswordProtect.App.csproj
+          -c Release -r win-x64 --self-contained
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true
+          -o publish
+      - name: Verify the exe was produced
+        run: |
+          if (!(Test-Path publish/PasswordProtect.exe)) { throw "PasswordProtect.exe was not produced" }
+          "{0:N1} MB" -f ((Get-Item publish/PasswordProtect.exe).Length / 1MB)
+      - name: Upload portable exe (manual runs only)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: PasswordProtect-portable
+          path: publish/PasswordProtect.exe
+          if-no-files-found: error

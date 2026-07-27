@@ -1,0 +1,14 @@
+# Keep byte-for-byte identical content across OSes (no EOL conversion), so the
+# bundled binaries and hash-pinned fixtures have the same SHA-256 everywhere.
+*.exe binary
+*.dll binary
+*.7z binary
+*.pdf binary
+*.bin binary
+
+# Scripts and source keep LF.
+*.ps1 text eol=lf
+*.psm1 text eol=lf
+*.cs text eol=lf
+*.csproj text eol=lf
+*.yml text eol=lf
