@@ -106,21 +106,24 @@ namespace CuroPdfProtect.Launcher
             // Everything else is a hand-off to a script in the extracted payload.
             string script;
             IEnumerable<string> forward;
+            bool echo;
             if (Eq(verb, "--setup"))
             {
                 script = Path.Combine(root, "setup.ps1");
                 forward = Slice(args, 1);
+                echo = true;                  // setup reports progress and prompts
             }
             else
             {
                 script = Path.Combine(root, "PasswordProtect.ps1");
                 forward = args;               // bare paths = files to protect
+                echo = _hasConsole;           // silent behind the WPF dialogs otherwise
             }
 
             if (!File.Exists(script))
                 throw new FileNotFoundException("Extracted payload is missing " + Path.GetFileName(script) + ".", script);
 
-            return RunScript(script, forward);
+            return RunScript(script, forward, echo);
         }
 
         // ---------------------------------------------------------------- child
@@ -132,46 +135,77 @@ namespace CuroPdfProtect.Launcher
             return File.Exists(ps) ? ps : "powershell.exe";
         }
 
-        private static int RunScript(string scriptPath, IEnumerable<string> forwarded)
+        private static int RunScript(string scriptPath, IEnumerable<string> forwarded, bool echo)
         {
             var sb = new StringBuilder();
             sb.Append("-NoProfile -ExecutionPolicy Bypass -STA -File ").Append(Quote(scriptPath));
             foreach (string a in forwarded) sb.Append(' ').Append(Quote(a));
-            return Launch(sb.ToString());
+            return Launch(sb.ToString(), echo);
         }
 
         private static int RunEncoded(string script)
         {
             string b64 = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
-            return Launch("-NoProfile -EncodedCommand " + b64);
+            return Launch("-NoProfile -EncodedCommand " + b64, true);
         }
 
-        private static int Launch(string arguments)
+        /// <summary>
+        /// Start powershell.exe and relay its exit code.
+        ///
+        /// When <paramref name="echo"/>, the child's streams are redirected and
+        /// pumped to ours asynchronously. Relying on handle inheritance instead
+        /// does NOT work here: this is a GUI-subsystem exe, so it has no console
+        /// of its own, and a child's output can miss the pipe our caller is
+        /// capturing. Pumping is deterministic, and being async keeps prompts
+        /// (setup's Read-Host) appearing live rather than after the child exits.
+        /// stdin is deliberately left inherited so those prompts can be answered.
+        /// </summary>
+        private static int Launch(string arguments, bool echo)
         {
             var psi = new ProcessStartInfo
             {
                 FileName = PowerShellExe(),
                 Arguments = arguments,
                 UseShellExecute = false,
-                CreateNoWindow = _hasConsole,
+                CreateNoWindow = true,
+                RedirectStandardOutput = echo,
+                RedirectStandardError = true,
             };
 
-            // With a console (CI, or launched from cmd) let the child write
-            // straight through so its output is visible and capturable. Without
-            // one, capture stderr so a failure can be reported in a dialog.
-            if (!_hasConsole) psi.RedirectStandardError = true;
-
-            using (Process p = Process.Start(psi))
+            var errBuf = new StringBuilder();
+            using (Process p = new Process())
             {
-                string stderr = string.Empty;
-                if (!_hasConsole) stderr = p.StandardError.ReadToEnd();
+                p.StartInfo = psi;
+                if (echo)
+                {
+                    p.OutputDataReceived += (s, e) => { if (e.Data != null) SafeWrite(Console.Out, e.Data); };
+                    p.ErrorDataReceived += (s, e) =>
+                    {
+                        if (e.Data == null) return;
+                        errBuf.AppendLine(e.Data);
+                        SafeWrite(Console.Error, e.Data);
+                    };
+                }
+                else
+                {
+                    p.ErrorDataReceived += (s, e) => { if (e.Data != null) errBuf.AppendLine(e.Data); };
+                }
+
+                p.Start();
+                if (echo) p.BeginOutputReadLine();
+                p.BeginErrorReadLine();
                 p.WaitForExit();
 
                 int rc = p.ExitCode;
                 if (rc != 0 && !_hasConsole)
-                    ErrorDialog.Show(ErrorDialog.BuildFailureMessage(rc, stderr));
+                    ErrorDialog.Show(ErrorDialog.BuildFailureMessage(rc, errBuf.ToString()));
                 return rc;
             }
+        }
+
+        private static void SafeWrite(System.IO.TextWriter w, string line)
+        {
+            try { w.WriteLine(line); } catch { /* no stream to write to */ }
         }
 
         // ----------------------------------------------------------- diagnostic
