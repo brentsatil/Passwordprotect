@@ -102,6 +102,22 @@ function Get-CuroConfig {
     Assert-ConfigField $cfg 'audit_log_retention_days'   { param($v) [int]$v -ge 30 }
     Assert-ConfigField $cfg 'qpdf_path' { param($v) -not [string]::IsNullOrWhiteSpace([string]$v) }
 
+    # qpdf ships WITH the scripts, so its path must follow the code rather than
+    # whatever absolute path was frozen into settings.json at setup time. Two
+    # real cases break a stored path: the portable exe extracts to a folder
+    # named after a hash of its payload, so an update moves qpdf and prunes the
+    # old copy; and uninstalling a machine-wide install deletes the Program
+    # Files copy a per-user config may still point at. In both the config is
+    # otherwise perfectly good, so heal the path instead of failing the user.
+    if ($cfg.PSObject.Properties['qpdf_path']) {
+        $configured = [string]$cfg.qpdf_path
+        if ($configured -and -not (Test-Path -LiteralPath $configured)) {
+            $toolRoot = Split-Path -Parent $PSScriptRoot      # src\ -> tool root
+            $bundled  = Join-Path $toolRoot 'bin\qpdf.exe'
+            if (Test-Path -LiteralPath $bundled) { $cfg.qpdf_path = $bundled }
+        }
+    }
+
     return $cfg
 }
 
