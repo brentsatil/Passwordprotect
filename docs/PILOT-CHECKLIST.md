@@ -41,7 +41,17 @@ pilots can protect + send without help, and the recovery drill passed.
 
 ## Week 2 - the rest of the team
 
-- [ ] Set up remaining PCs (repeat the setup command per PC).
+- [ ] Set up remaining PCs. Run the **same** setup command, but **without**
+      `-PfxPath` / `-PfxPassword` - the escrow key already exists and each PC now
+      adopts it automatically from the shared escrow folder. You should see
+      `[OK] Adopted the existing deployment escrow certificate (...)`.
+      **Never generate a second key.** A PC with its own key writes files that
+      your recovery PFX cannot open, and you would not find out until a client
+      asked for a password. Setup refuses to mint a second key, and
+      `Test-CuroHealth` reports `escrow key` unhealthy if one ever appears.
+- [ ] On one of the new PCs, confirm the fingerprint matches Day 0's:
+      `Import-Module .\src\Config.psm1; (Test-CuroHealth).Issues` should not list
+      `escrow key`.
 - [ ] Hand out the cheat sheet; do a 10-minute demo.
 - [ ] Keep running the weekly `Get-AuditSummary.ps1 -Days 7` for the first month.
 

@@ -190,10 +190,64 @@ foreach ($d in @($programData, (Join-Path $programData 'cache'))) {
 }
 StepOK "Local state folders ready under $programData."
 
-# --- Step 5: escrow keypair -------------------------------------------------
-$certPath = Join-Path $programData 'escrow.cer'
-if ((Test-Path -LiteralPath $certPath) -and -not $Force) {
-    StepSkip "Escrow certificate already present ($certPath). Use -Force to rotate."
+# --- Step 5: escrow keypair (ONE key for the whole deployment) --------------
+# The escrow key must be identical on every machine. A PC that mints its own
+# writes sidecars that the team's recovery .pfx CANNOT open, and that stays
+# invisible until a client actually needs their password back - by which point
+# the plaintext may be long gone. So the certificate is generated exactly once
+# and published beside the escrow records; every later machine adopts it.
+$certPath   = Join-Path $programData 'escrow.cer'
+$deployCert = Get-CuroDeploymentCertPath -EscrowDir $EscrowDir
+
+function Publish-DeploymentCert {
+    param([string] $LocalCert, [string] $Destination)
+    $destDir = Split-Path -Parent $Destination
+    if (-not (Test-Path -LiteralPath $destDir)) { New-Item -ItemType Directory -Path $destDir -Force -ErrorAction Stop | Out-Null }
+    Copy-Item -LiteralPath $LocalCert -Destination $Destination -Force -ErrorAction Stop
+}
+
+$havePublished = Test-Path -LiteralPath $deployCert
+$haveLocal     = Test-Path -LiteralPath $certPath
+
+# Note: -Force deliberately does NOT rotate the escrow key. It means "rewrite
+# settings.json", and an admin re-running setup to fix a path must never
+# silently re-key the entire deployment - that would orphan every file already
+# protected. Rotation is an explicit act: admin\Rotate-EscrowKey.ps1.
+if ($havePublished) {
+    # A deployment key already exists: adopt it, never mint a second one.
+    try {
+        $publishedFp = Get-CuroCertFingerprint -Path $deployCert
+        if (-not $haveLocal) {
+            Copy-Item -LiteralPath $deployCert -Destination $certPath -Force -ErrorAction Stop
+            StepOK "Adopted the existing deployment escrow certificate ($publishedFp)."
+            Say  "       No new key was generated - this machine now wraps under the"
+            Say  "       same key as the rest of the team, so the existing recovery"
+            Say  "       PFX opens files protected here."
+        } elseif ((Get-CuroCertFingerprint -Path $certPath) -eq $publishedFp) {
+            StepSkip "Escrow certificate already present and matches the deployment key ($publishedFp)."
+        } else {
+            StepFail "This machine's escrow certificate ($(Get-CuroCertFingerprint -Path $certPath)) does not match the deployment key ($publishedFp)."
+            Say  "       Files protected here would NOT be recoverable with the team's PFX."
+            Say  "       Replace '$certPath' with '$deployCert' to join the deployment, or"
+            Say  "       rotate the whole deployment deliberately with"
+            Say  "       admin\Rotate-EscrowKey.ps1 (which republishes to every machine)."
+            exit 1
+        }
+    } catch {
+        StepFail "Could not read the deployment escrow certificate at '$deployCert': $($_.Exception.Message)"
+        exit 1
+    }
+} elseif ($haveLocal) {
+    # Pre-existing local key from a setup that ran before publication existed:
+    # promote it so every later machine adopts this one.
+    try {
+        Publish-DeploymentCert -LocalCert $certPath -Destination $deployCert
+        StepOK "Published this machine's escrow certificate ($(Get-CuroCertFingerprint -Path $certPath)) as the deployment key."
+        Say  "       Other machines will now adopt it instead of generating their own."
+    } catch {
+        StepFail "Could not publish the escrow certificate to '$deployCert': $($_.Exception.Message)"
+        exit 1
+    }
 } else {
     $PfxPath = Need $PfxPath 'PfxPath' 'Where to save the escrow PRIVATE key (.pfx) - keep this OFFLINE (e.g. a USB drive)'
     if (-not $PfxPassword) {
@@ -207,7 +261,11 @@ if ((Test-Path -LiteralPath $certPath) -and -not $Force) {
     if ($Force -and (Test-Path -LiteralPath $PfxPath)) { Remove-Item -LiteralPath $PfxPath -Force }
     try {
         & (Join-Path $root 'admin\Rotate-EscrowKey.ps1') -NewPrivateKeyPath $PfxPath -PfxPassword $PfxPassword
+        Publish-DeploymentCert -LocalCert $certPath -Destination $deployCert
         StepOK "Escrow keypair generated. Public cert: $certPath"
+        Say  "       Published as the deployment key: $deployCert"
+        Say  "       Every other machine will adopt it automatically - do NOT run a"
+        Say  "       separate key generation on the other PCs."
         Say  "       KEEP THE PRIVATE KEY SAFE: $PfxPath"
         Say  "       It is the ONLY way to recover a client's password. Store it offline"
         Say  "       (a safe, a USB in a drawer) and make a second copy off-site."

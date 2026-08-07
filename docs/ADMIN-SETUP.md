@@ -116,6 +116,25 @@ add `-PurgeAuditLog`.
 
 ## Key custody (read this)
 
+### One key for the whole team - generated once, never per PC
+
+This is the single most important thing to get right.
+
+- **The first PC you set up generates the escrow key pair** and publishes the
+  public certificate to `<your escrow folder>\_deployment\escrow.cer`.
+- **Every other PC adopts that certificate automatically.** Run the same setup
+  command on them but leave `-PfxPath` and `-PfxPassword` off. You will see
+  `[OK] Adopted the existing deployment escrow certificate (...)`.
+- **Do not generate a key on each machine.** A PC wrapping under its own key
+  produces files your recovery `.pfx` **cannot open**, and nothing reveals it
+  until a client asks for a password back. Setup now refuses to mint a second
+  key when a deployment key exists, and the health check reports an
+  `escrow key` problem if a mismatch ever appears.
+- **Rotation is also once.** `admin\Rotate-EscrowKey.ps1` publishes the new
+  certificate to the same shared location so every PC picks it up. Keep every
+  retired `.pfx` forever - files protected under an old key can only be
+  recovered with that old key.
+
 Setup generates an escrow **key pair**:
 
 - A **public certificate** (`escrow.cer`) is placed on each PC. It only

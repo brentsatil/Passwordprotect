@@ -31,10 +31,32 @@ try {
     if (Test-Path -LiteralPath $NewPrivateKeyPath) { throw "Private key destination '$NewPrivateKeyPath' already exists. Aborting." }
     Export-PfxCertificate -Cert $cert -FilePath $NewPrivateKeyPath -Password $PfxPassword | Out-Null
 
+    # Publish to the shared deployment location as well. Without this, rotation
+    # only ever reaches the machine it was run on and every other PC keeps
+    # wrapping under the retired key - the same split-key failure that makes a
+    # per-machine keygen so dangerous, just delayed by a year.
+    $published = $null
+    if ($config.escrow_dir) {
+        try {
+            $published = Get-CuroDeploymentCertPath -EscrowDir $config.escrow_dir
+            $publishedDir = Split-Path -Parent $published
+            if (-not (Test-Path -LiteralPath $publishedDir)) { New-Item -ItemType Directory -Path $publishedDir -Force -ErrorAction Stop | Out-Null }
+            if (Test-Path -LiteralPath $published) { Copy-Item -LiteralPath $published -Destination ("$published.$((Get-Date).ToString('yyyyMMdd-HHmmss')).old") -Force }
+            Copy-Item -LiteralPath $pubPath -Destination $published -Force -ErrorAction Stop
+        } catch {
+            Write-Warning "Could not publish the new certificate to the shared escrow location: $($_.Exception.Message)"
+            Write-Warning "Other machines will keep using the OLD key until you copy '$pubPath' to '$published'."
+            $published = $null
+        }
+    }
+
     Write-Host "New escrow certificate fingerprint: $($cert.Thumbprint.ToLowerInvariant())"
     Write-Host "Public certificate written to: $pubPath"
+    if ($published) { Write-Host "Published as the deployment key: $published" }
     Write-Host "Private recovery PFX written to: $NewPrivateKeyPath"
     Write-Host 'Retain previous recovery PFX files indefinitely.' -ForegroundColor Yellow
+    Write-Host 'Every other machine adopts the new key on its next health check; files' -ForegroundColor Yellow
+    Write-Host 'already protected stay recoverable only with their original PFX.' -ForegroundColor Yellow
 } finally {
     Remove-Item -LiteralPath ("Cert:\CurrentUser\My\$($cert.Thumbprint)") -Force -ErrorAction SilentlyContinue
 }

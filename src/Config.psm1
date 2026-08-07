@@ -122,6 +122,34 @@ function Test-CuroBinaryIntegrity {
     return $null
 }
 
+function Get-CuroDeploymentCertPath {
+    <#
+    .SYNOPSIS
+        Where the ONE escrow certificate for this whole deployment lives.
+    .DESCRIPTION
+        Every machine must wrap under the same escrow key. If a second PC mints
+        its own, the sidecars it writes cannot be recovered with the office .pfx
+        and nothing notices until a client actually needs a password back - so
+        the certificate is published once, beside the escrow records, and every
+        later machine adopts it from here.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $EscrowDir)
+    return (Join-Path (Join-Path $EscrowDir '_deployment') 'escrow.cer')
+}
+
+function Get-CuroCertFingerprint {
+    <#
+    .SYNOPSIS
+        Lowercase SHA-1 thumbprint of a .cer, matching the escrow sidecar's
+        public_key_fingerprint field (src\Write-Escrow.ps1).
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $Path)
+    $c = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($Path)
+    try { return $c.Thumbprint.Replace(' ', '').ToLowerInvariant() } finally { $c.Dispose() }
+}
+
 function Test-CuroHealth {
     [CmdletBinding()]
     param([string]$Path = (Get-CuroConfigPath))
@@ -145,6 +173,33 @@ function Test-CuroHealth {
         catch { $issues.Add([pscustomobject]@{ Component='audit log'; Healthy=$false; Message=$_.Exception.Message; NextStep='Fix audit_log_path permissions or create the configured audit folder.' }) | Out-Null }
         try { if (-not (Test-Path -LiteralPath $cfg.escrow_dir)) { New-Item -ItemType Directory -Path $cfg.escrow_dir -Force -ErrorAction Stop | Out-Null } }
         catch { $issues.Add([pscustomobject]@{ Component='escrow directory'; Healthy=$false; Message=$_.Exception.Message; NextStep='Restore access to escrow_dir before protecting PDFs.' }) | Out-Null }
+        # One deployment = one escrow key. A machine wrapping under a different
+        # key than the rest of the team writes sidecars the office .pfx cannot
+        # recover, and that is invisible until a real recovery is attempted -
+        # so compare this machine's cert against the published deployment cert.
+        # Silent when the published cert is absent: an escrow share that is
+        # unreachable is already reported by the check above, and a deployment
+        # predating publication should not be branded unhealthy for it.
+        $localCert = if ($cfg.escrow_cert_path) { $cfg.escrow_cert_path } else { $cfg.escrow_pubkey_path }
+        if ($cfg.escrow_dir -and $localCert -and (Test-Path -LiteralPath $localCert)) {
+            $publishedCert = Get-CuroDeploymentCertPath -EscrowDir $cfg.escrow_dir
+            if (Test-Path -LiteralPath $publishedCert) {
+                try {
+                    $localFp     = Get-CuroCertFingerprint -Path $localCert
+                    $publishedFp = Get-CuroCertFingerprint -Path $publishedCert
+                    if ($localFp -ne $publishedFp) {
+                        $issues.Add([pscustomobject]@{
+                            Component = 'escrow key'
+                            Healthy   = $false
+                            Message   = "This machine wraps under $localFp but the deployment key is $publishedFp. Files protected here would NOT be recoverable with the team's recovery PFX."
+                            NextStep  = "Replace '$localCert' with '$publishedCert', or re-run setup.ps1. If this machine's key is the correct one, rotate deliberately with admin\Rotate-EscrowKey.ps1."
+                        }) | Out-Null
+                    }
+                } catch {
+                    $issues.Add([pscustomobject]@{ Component='escrow key'; Healthy=$false; Message="Could not compare escrow certificates: $($_.Exception.Message)"; NextStep='Check that both the local and published escrow.cer are readable.' }) | Out-Null
+                }
+            }
+        }
     }
     # Build the result with Add-Member rather than [pscustomobject]@{...}: the
     # cast form intermittently throws "Argument types do not match" on Windows
@@ -157,4 +212,4 @@ function Test-CuroHealth {
     return $result
 }
 
-Export-ModuleMember -Function Get-CuroConfig, Test-CuroHealth, Get-CuroConfigPath, Test-CuroBinaryIntegrity
+Export-ModuleMember -Function Get-CuroConfig, Test-CuroHealth, Get-CuroConfigPath, Test-CuroBinaryIntegrity, Get-CuroDeploymentCertPath, Get-CuroCertFingerprint

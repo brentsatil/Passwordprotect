@@ -272,6 +272,105 @@ jobs:
           Write-Host "Launcher E2E OK: setup -> healthy -> protect -> decrypt -> SHA-256 escrow -> recover with the PFX."
           exit 0
 
+      - name: Two machines share ONE escrow key (split-key regression)
+        run: |
+          # A second PC that mints its own escrow key writes sidecars the team's
+          # recovery PFX cannot open, and nothing surfaces it until a real
+          # recovery fails. Simulate machine 2 by pointing ProgramData somewhere
+          # new while keeping the SAME shared escrow dir, and prove that (a) it
+          # adopts rather than generates, and (b) a file it protects recovers
+          # with MACHINE 1's PFX.
+          $ErrorActionPreference = 'Stop'
+          $src = (Get-Location).Path
+          $psExe = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+          $env:CURO_SUPPRESS_UI = '1'
+
+          $app = Join-Path $env:RUNNER_TEMP 'splitkey-app'
+          New-Item -ItemType Directory -Force -Path $app | Out-Null
+          foreach ($sub in 'src','bin','config','admin') { Copy-Item (Join-Path $src $sub) $app -Recurse -Force }
+          foreach ($f in 'setup.ps1','install.ps1','VERSION') { Copy-Item (Join-Path $src $f) $app -Force }
+
+          $shared    = Join-Path $env:RUNNER_TEMP 'splitkey-shared'
+          $escrowDir = Join-Path $shared 'escrow'
+          $clientOut = Join-Path $shared 'clients.csv'
+          $fixture   = Join-Path $src 'tests\fixtures\clients-sample.csv'
+          $pd1 = Join-Path $env:RUNNER_TEMP 'splitkey-pd1'
+          $pd2 = Join-Path $env:RUNNER_TEMP 'splitkey-pd2'
+          $pfx = Join-Path $env:RUNNER_TEMP 'splitkey-escrow.pfx'
+
+          function Invoke-Setup([string]$ProgramData, [string]$Extra) {
+            $inner = "`$env:ProgramData='$ProgramData'; & '$app\setup.ps1' -Mode Launcher -NonInteractive " +
+                     "-ClientListPath '$clientOut' -EscrowDir '$escrowDir' -ClientSource '$fixture' -Force $Extra; exit `$LASTEXITCODE"
+            $ErrorActionPreference = 'Continue'
+            $out = & $psExe -NoProfile -ExecutionPolicy Bypass -Command $inner 2>&1 | Out-String
+            $script:lastRc = $LASTEXITCODE
+            $ErrorActionPreference = 'Stop'
+            return $out
+          }
+
+          # Machine 1 generates and publishes the deployment key.
+          $o1 = Invoke-Setup $pd1 "-PfxPath '$pfx' -PfxPassword (ConvertTo-SecureString 'split-pw-1' -AsPlainText -Force)"
+          if ($lastRc -ne 0) { throw "machine 1 setup failed:`n$o1" }
+          $deployCert = Join-Path $escrowDir '_deployment\escrow.cer'
+          if (-not (Test-Path $deployCert)) { throw "machine 1 did not publish the deployment cert" }
+
+          # Machine 2: fresh ProgramData, no PFX args. Must ADOPT, not generate.
+          Remove-Item -Recurse -Force $pd2 -ErrorAction SilentlyContinue
+          $o2 = Invoke-Setup $pd2 ''
+          if ($lastRc -ne 0) { throw "machine 2 setup failed:`n$o2" }
+          if ($o2 -notmatch 'Adopted the existing deployment escrow certificate') { throw "machine 2 did not adopt the deployment key:`n$o2" }
+
+          Import-Module (Join-Path $app 'src\Config.psm1') -Force -DisableNameChecking
+          $fp1 = Get-CuroCertFingerprint -Path (Join-Path $pd1 'CuroPDFProtect\escrow.cer')
+          $fp2 = Get-CuroCertFingerprint -Path (Join-Path $pd2 'CuroPDFProtect\escrow.cer')
+          if ($fp1 -ne $fp2) { throw "SPLIT KEY: machine1=$fp1 machine2=$fp2" }
+          Write-Host "Both machines wrap under the same escrow key: $fp1"
+
+          # Machine 2 protects a file; machine 1's PFX must recover it.
+          $ErrorActionPreference = 'Continue'
+          $env:ProgramData = $pd2
+          Import-Module (Join-Path $app 'src\Protect.psm1') -Force -DisableNameChecking
+          $cfg2 = Get-CuroConfig -Path (Join-Path $app 'config\settings.json')
+          $work = Join-Path $env:RUNNER_TEMP 'splitkey-work'
+          New-Item -ItemType Directory -Force -Path $work | Out-Null
+          $raw = Join-Path $work 'raw.pdf'
+          @('%PDF-1.4','1 0 obj','<< /Type /Catalog /Pages 2 0 R >>','endobj','2 0 obj','<< /Type /Pages /Kids [3 0 R] /Count 1 >>','endobj','3 0 obj','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>','endobj','trailer','<< /Root 1 0 R >>','%%EOF') | Set-Content -LiteralPath $raw -Encoding ascii
+          $doc = Join-Path $work 'm2.pdf'
+          & $cfg2.qpdf_path $raw $doc 2>&1 | Out-Null
+          $ss = New-Object System.Security.SecureString
+          foreach ($c in '01031990'.ToCharArray()) { $ss.AppendChar($c) }
+          $ss.MakeReadOnly()
+          $prompt = [pscustomobject]@{ SecurePassword=$ss; PasswordSource='dob'; ClientFileRef='C-00502'; DeleteOriginal=$false; AllowOverwrite=$false; OpenOutlook=$false; Cancelled=$false }
+          $res = Invoke-ProtectFileCore -Config $cfg2 -Path $doc -PromptResult $prompt
+          if (-not $res.Success) { throw "machine 2 protect failed: $($res.Message)" }
+          $ErrorActionPreference = 'Stop'
+
+          $sidecar = Get-ChildItem -Path $escrowDir -Filter '*.escrow.json' -Recurse | Sort-Object LastWriteTime | Select-Object -Last 1
+          $entry = Get-Content -LiteralPath $sidecar.FullName -Raw | ConvertFrom-Json
+          . (Join-Path $app 'admin\Recover-File.ps1')
+          $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfx, (ConvertTo-SecureString 'split-pw-1' -AsPlainText -Force), [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable)
+          try { $rec = Unprotect-EscrowEntry -Entry $entry -Certificate $cert -Which user } finally { $cert.Dispose() }
+          if ($rec -ne '01031990') { throw "machine 1's PFX could not recover machine 2's file (got '$rec')" }
+          Write-Host "Machine 1's recovery PFX opened machine 2's protected file."
+
+          # And a genuinely divergent key must be reported unhealthy, not ignored.
+          $rogue = Join-Path $env:RUNNER_TEMP 'splitkey-rogue.pfx'
+          Remove-Item -LiteralPath $rogue -ErrorAction SilentlyContinue
+          $mk = "`$env:ProgramData='$pd2'; `$env:CURO_SETTINGS_PATH='$app\config\settings.json'; " +
+                "& '$app\admin\Rotate-EscrowKey.ps1' -NewPrivateKeyPath '$rogue' -PfxPassword (ConvertTo-SecureString 'rogue' -AsPlainText -Force) | Out-Null; exit 0"
+          $ErrorActionPreference = 'Continue'
+          & $psExe -NoProfile -ExecutionPolicy Bypass -Command $mk 2>&1 | Out-Null
+          $ErrorActionPreference = 'Stop'
+          # Rotation republishes, so restore the ORIGINAL deployment cert to make
+          # machine 2 genuinely divergent from the published key.
+          Copy-Item -LiteralPath (Join-Path $pd1 'CuroPDFProtect\escrow.cer') -Destination $deployCert -Force
+          $env:ProgramData = $pd2
+          $h = Test-CuroHealth -Path (Join-Path $app 'config\settings.json')
+          if ($h.Healthy) { throw "a divergent escrow key was NOT reported unhealthy" }
+          if (-not ($h.Issues | Where-Object { $_.Component -eq 'escrow key' })) { throw "divergence not attributed to 'escrow key': $(($h.Issues | ForEach-Object { $_.Component }) -join ', ')" }
+          Write-Host "Divergent escrow key correctly reported unhealthy."
+          exit 0
+
       - name: E2E install mode (machine-wide install + uninstall)
         run: |
           # The runner is admin, so exercise the real install path: payload
