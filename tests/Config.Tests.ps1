@@ -26,6 +26,7 @@ Describe 'Get-CuroConfig' {
             escrow_dir = '\\server\data\PDFProtect-Escrow'
             dob_password_digits = 8
             manual_password_min_length = 10
+            manual_password_required_classes = 3
             audit_log_retention_days = 2555
             audit_log_path = '%ProgramData%\CuroPDFProtect\audit.log'
             qpdf_path = 'C:\Program Files\CuroPDFProtect\bin\qpdf.exe'
@@ -43,10 +44,29 @@ Describe 'Get-CuroConfig' {
             escrow_dir = '\\server\data\PDFProtect-Escrow'
             dob_password_digits = 8
             manual_password_min_length = 10
+            manual_password_required_classes = 3
             audit_log_retention_days = 2555
             audit_log_path = '%ProgramData%\CuroPDFProtect\audit.log'
         } | ConvertTo-Json | Set-Content -LiteralPath $tmp.FullName -Encoding UTF8
         { Get-CuroConfig -Path $tmp.FullName } | Should -Throw '*qpdf_path*'
+        Remove-Item $tmp
+    }
+    It 'rejects a config missing manual_password_required_classes' {
+        # Unvalidated, the missing key reached Test-ManualComplexity as $null,
+        # coerced to [int]0, and every manual password passed "at least 0
+        # character classes" - complexity enforcement off, with no error.
+        $tmp = New-TemporaryFile
+        @{
+            schema_version = 1
+            client_lookup_file = '\\server\shared\PDFProtect\clients.csv'
+            escrow_dir = '\\server\data\PDFProtect-Escrow'
+            dob_password_digits = 8
+            manual_password_min_length = 10
+            audit_log_retention_days = 2555
+            audit_log_path = '%ProgramData%\CuroPDFProtect\audit.log'
+            qpdf_path = 'C:\Program Files\CuroPDFProtect\bin\qpdf.exe'
+        } | ConvertTo-Json | Set-Content -LiteralPath $tmp.FullName -Encoding UTF8
+        { Get-CuroConfig -Path $tmp.FullName } | Should -Throw '*manual_password_required_classes*'
         Remove-Item $tmp
     }
 }
@@ -62,10 +82,30 @@ Describe 'Get-CuroConfigPath probe order' {
     It 'falls back to the machine-wide path when nothing is set or present' {
         Remove-Item Env:CURO_SETTINGS_PATH -ErrorAction SilentlyContinue
         $expected = Join-Path $env:ProgramData 'CuroPDFProtect\settings.json'
-        # On the CI runner neither the machine nor launcher config exists,
-        # so the machine-wide path is returned for a clear "not found" error.
-        if (-not (Test-Path -LiteralPath $expected)) {
+        $perUser  = Join-Path $env:LOCALAPPDATA 'CuroPDFProtect\settings.json'
+        # Only meaningful when neither real config exists on this host; the
+        # per-user path is checked too since it now wins the probe.
+        if (-not (Test-Path -LiteralPath $expected) -and -not (Test-Path -LiteralPath $perUser)) {
             Get-CuroConfigPath | Should -Be $expected
+        }
+    }
+
+    It 'prefers the per-user config over a machine-wide one' {
+        # This ordering is what stops a stale Install-mode config (pointing at a
+        # Program Files qpdf that uninstall.ps1 deleted) from shadowing the
+        # per-user config that --setup writes, a trap --setup could not repair.
+        Remove-Item Env:CURO_SETTINGS_PATH -ErrorAction SilentlyContinue
+        $fakeLocal = Join-Path $TestDrive 'local'
+        New-Item -ItemType Directory -Force -Path (Join-Path $fakeLocal 'CuroPDFProtect') | Out-Null
+        $userCfg = Join-Path $fakeLocal 'CuroPDFProtect\settings.json'
+        '{}' | Set-Content -LiteralPath $userCfg -Encoding UTF8
+
+        $savedLocal = $env:LOCALAPPDATA
+        try {
+            $env:LOCALAPPDATA = $fakeLocal
+            Get-CuroConfigPath | Should -Be $userCfg
+        } finally {
+            $env:LOCALAPPDATA = $savedLocal
         }
     }
 
