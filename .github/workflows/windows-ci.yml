@@ -416,7 +416,11 @@ jobs:
           }
           $results = $jobs | Wait-Job -Timeout 180 | Receive-Job
           $jobs | Remove-Job -Force -ErrorAction SilentlyContinue
-          $ErrorActionPreference = 'Stop'
+          # Stay on 'Continue' through the qpdf calls below. The hand-rolled
+          # minimal PDF makes qpdf emit "file is damaged" on stderr (it
+          # reconstructs and exits 3, success-with-warnings), and under 'Stop'
+          # that stderr becomes a terminating NativeCommandError. Every check
+          # here asserts explicitly via throw, so nothing is masked.
 
           $failed = @($results | Where-Object { -not $_.Success })
           if ($failed.Count) { throw "concurrent protect failures: $(($failed | ForEach-Object { $_.Err }) -join ', ')" }
