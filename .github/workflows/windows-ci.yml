@@ -433,6 +433,12 @@ jobs:
           }
           Write-Host "4 concurrent protects into one folder: all distinct, all decrypt, no temp left behind."
 
+          # Back to Stop for the archive checks: no native commands run below,
+          # so a throw inside the scripts should abort the step. (Do NOT test
+          # $LASTEXITCODE after invoking a .ps1 - a script only sets it if it
+          # calls exit, so it would still hold qpdf's exit 3 from above.)
+          $ErrorActionPreference = 'Stop'
+
           # Audit archive: per-machine log -> dated per-host folder, and the
           # summary must read the ARCHIVE (every host) not just this PC.
           $archive = Join-Path $env:RUNNER_TEMP 'audit-archive'
@@ -443,7 +449,6 @@ jobs:
           ) | Set-Content -LiteralPath $localLog -Encoding ascii
 
           & (Join-Path $src 'admin\Export-AuditArchive.ps1') -ArchiveRoot $archive -AuditPath $localLog | Out-Null
-          if ($LASTEXITCODE -gt 0) { throw "Export-AuditArchive failed" }
           $snap = @(Get-ChildItem -Path $archive -Filter 'audit-*.log' -Recurse)
           if ($snap.Count -ne 1) { throw "expected 1 archived snapshot, found $($snap.Count)" }
 
