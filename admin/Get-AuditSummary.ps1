@@ -11,22 +11,47 @@
 [CmdletBinding()]
 param(
     [string] $AuditPath,
-    [int]    $Days = 7
+    [int]    $Days = 7,
+    # Summarise the whole shared archive (every host) instead of just this
+    # machine's log. Point it at the folder admin\Export-AuditArchive.ps1
+    # writes to, or omit the value to use <escrow_dir>\_audit-archive.
+    [string] $ArchiveRoot,
+    [switch] $Archive
 )
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $root = Split-Path -Parent $here
 # The audit path is the only thing config provides here; skip the config load
 # entirely when the caller passes -AuditPath (e.g. aggregating copied logs).
-if (-not $AuditPath) {
+if (-not $AuditPath -and -not $ArchiveRoot) {
     Import-Module (Join-Path $root 'src\Config.psm1') -Force
-    $AuditPath = [Environment]::ExpandEnvironmentVariables((Get-CuroConfig).audit_log_path)
+    $cfg = Get-CuroConfig
+    if ($Archive) { $ArchiveRoot = Join-Path $cfg.escrow_dir '_audit-archive' }
+    else          { $AuditPath   = [Environment]::ExpandEnvironmentVariables($cfg.audit_log_path) }
 }
 
-if (-not (Test-Path -LiteralPath $AuditPath)) { throw "Audit log not found at $AuditPath" }
+# One machine's log, or every host's snapshots from the archive. Each archive
+# run copies the whole log, so the same event recurs across snapshots and must
+# be de-duplicated or every count would be inflated.
+$rawLines = @()
+if ($ArchiveRoot) {
+    if (-not (Test-Path -LiteralPath $ArchiveRoot)) { throw "Audit archive not found at $ArchiveRoot" }
+    $files = @(Get-ChildItem -Path $ArchiveRoot -Filter 'audit-*.log' -Recurse -ErrorAction SilentlyContinue)
+    if (-not $files.Count) { throw "No archived audit logs under $ArchiveRoot. Run admin\Export-AuditArchive.ps1 on each machine first." }
+    $seen = New-Object System.Collections.Generic.HashSet[string]
+    foreach ($f in $files) {
+        foreach ($l in Get-Content -LiteralPath $f.FullName) {
+            if ($l.Trim() -and $seen.Add($l)) { $rawLines += $l }
+        }
+    }
+    Write-Host "Archive: $($files.Count) snapshot(s), $($rawLines.Count) unique event(s) from $ArchiveRoot"
+} else {
+    if (-not (Test-Path -LiteralPath $AuditPath)) { throw "Audit log not found at $AuditPath" }
+    $rawLines = @(Get-Content -LiteralPath $AuditPath)
+}
 
 $cutoff = (Get-Date).AddDays(-$Days).ToUniversalTime()
-$events = Get-Content -LiteralPath $AuditPath |
+$events = $rawLines |
     ForEach-Object { try { $_ | ConvertFrom-Json } catch { $null } } |
     Where-Object { $_ -and ([datetime]$_.ts) -ge $cutoff }
 

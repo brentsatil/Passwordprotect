@@ -209,7 +209,40 @@ Every deployed tool generates tickets. Expect:
 
 ---
 
-## 12. A second implementation on `main` bypasses these controls
+## 12. Escrow in a synced folder weakens fail-closed to "on this laptop"
+
+`docs/DECISIONS.md` #5 promises "no protected file ever exists without its
+recovery record", and the code enforces it: if the sidecar cannot be written the
+protected output is deleted and the operation fails `ESCROW_OFFLINE`.
+
+That guarantee is only as strong as the escrow location. Point `escrow_dir` at a
+**OneDrive/SharePoint-synced folder** and the write succeeds locally, `Test-Path`
+confirms it locally, and the tool reports success — while the sidecar sits in a
+sync queue. If the laptop dies, is lost, or never syncs before the file is
+emailed, the protected file exists and its recovery record does not. Nothing in
+the tool can see the difference; sync state is invisible to it.
+
+Files-on-demand adds a second edge: an "online-only" `clients.csv` passes
+`Test-Path` and the staleness check, then fails at read time with a confusing
+"could not parse client CSV" rather than "your OneDrive is offline".
+
+**Mitigation**
+
+- **Prefer a UNC share for `escrow_dir`.** A write to `\\server\share` either
+  reaches the server or fails loudly — which is what fail-closed needs.
+- If a synced folder is unavoidable, make it "Always keep on this device" and
+  accept the documented residual: the recovery record may lag the protected
+  file. Say so in the procedure rather than implying the guarantee is absolute.
+- Every machine must use the *same* escrow location. Two people pointing at
+  their own `C:\Users\<name>\OneDrive - Curo\...` are not sharing a store even
+  though the paths look alike; `setup.ps1` prompts per machine with no
+  cross-check.
+- The escrow key check (`Test-CuroHealth` → `escrow key`) catches a diverged
+  *key*, not a diverged *location* — verify the path on each PC during rollout.
+
+---
+
+## 13. A second implementation on `main` bypasses these controls
 
 Every mitigation in this register describes the PowerShell tool at the repo root. The
 exploratory .NET app under `app\` (merged 2026-07-27) implements **none** of the escrow,
@@ -237,7 +270,7 @@ paths are visually indistinguishable — and `uninstall.ps1` removes only the ro
 
 ---
 
-## 13. Over-blocking productivity
+## 14. Over-blocking productivity
 
 If the tool is slow, the prompt is fiddly, or the UX is ugly, staff
 will bypass it and send plaintext files instead.

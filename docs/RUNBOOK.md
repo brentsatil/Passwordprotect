@@ -133,17 +133,25 @@ Verify either way:
 
 ## 8. Decommissioning a machine
 
-1. `uninstall.ps1 -PurgeAuditLog` — only after the machine's audit log
-   has been copied to the central audit archive on the file server.
-2. Back up the audit archive; it is retained for 7 years from the date of
-   the last audit entry.
+1. **Archive this machine's audit log first** — the log is per-machine, so
+   decommissioning a PC without this destroys its share of the 7-year record:
+
+   ```powershell
+   .\admin\Export-AuditArchive.ps1
+   ```
+
+   It copies to `<escrow folder>\_audit-archive\<year>\<month>\<PC name>\`.
+   Confirm the file is there before continuing.
+2. Then `uninstall.ps1 -PurgeAuditLog`.
+3. Back up the archive; it is retained for 7 years from the last audit entry.
 
 ## 9. Weekly rhythm
 
 | Day | Task | Owner | Time |
 |-----|------|-------|------|
 | Mon | Run `Publish-Clients.ps1` | Practice Admin | ~5 min |
-| Mon | Run `Get-AuditSummary.ps1 -Days 7` | Brent or Ian | ~5 min |
+| Mon | Archive each PC's audit log: `Export-AuditArchive.ps1` (schedule it per PC in Task Scheduler) | Brent or Ian | ~2 min |
+| Mon | Run `Get-AuditSummary.ps1 -Archive -Days 7` — the whole practice, not just your own PC | Brent or Ian | ~5 min |
 | Mon | Review any non-zero `error_code` counts | Brent or Ian | ~5 min |
 | Bi-annual | Test escrow recovery end-to-end | Ian | ~15 min |
 | Annual  | Rotate escrow keypair | Brent | ~30 min |

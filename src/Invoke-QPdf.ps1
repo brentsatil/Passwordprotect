@@ -64,7 +64,11 @@ function Protect-Pdf {
     try { $fs = [System.IO.File]::Open($InputPath,'Open','Read','None'); $fs.Dispose() } catch { return [pscustomobject]@{ Success=$false; ErrorCode='FILE_LOCKED'; OutputPath=$null; Stderr='Input file is in use. Close it in Acrobat or Reader and try again.'; OwnerPassword=$null } }
 
     $inArg  = if ($LongPathPrefix) { Add-LongPathPrefix $InputPath } else { $InputPath }
-    $tmpOut = "$OutputPath.tmp"
+    # Unique per attempt. A fixed "<output>.tmp" lives in the SOURCE folder, so
+    # two staff protecting the same PDF in a shared client folder at the same
+    # moment would write and rename the same temp file over each other. The
+    # overwrite guard above only covers the final name.
+    $tmpOut = "$OutputPath.$([System.Guid]::NewGuid().ToString('N').Substring(0,8)).tmp"
     $outArg = if ($LongPathPrefix) { Add-LongPathPrefix $tmpOut } else { $tmpOut }
     $generatedOwner = $false
     if (-not $OwnerPassword) {

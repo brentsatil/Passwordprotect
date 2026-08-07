@@ -377,6 +377,79 @@ jobs:
           Write-Host "Divergent escrow key correctly reported unhealthy."
           exit 0
 
+      - name: Concurrent protects + audit archive round-trip
+        run: |
+          # Two staff protecting files in the SAME shared folder at the same
+          # moment used to collide: qpdf staged every job at a fixed
+          # "<output>.tmp" beside the source, so one run renamed the other's
+          # half-written file. And the audit log is per-machine with nothing
+          # aggregating it, which is not a 7-year record.
+          $ErrorActionPreference = 'Stop'
+          $src = (Get-Location).Path
+          $env:CURO_SUPPRESS_UI = '1'
+          Import-Module (Join-Path $src 'src\Config.psm1')  -Force -DisableNameChecking
+          Import-Module (Join-Path $src 'src\Protect.psm1') -Force -DisableNameChecking
+          . (Join-Path $src 'src\Invoke-QPdf.ps1')
+
+          $work = Join-Path $env:RUNNER_TEMP 'concurrent'
+          New-Item -ItemType Directory -Force -Path $work | Out-Null
+          $qpdf = (Resolve-Path (Join-Path $src 'bin\qpdf.exe')).Path
+          $raw = Join-Path $work 'raw.pdf'
+          @('%PDF-1.4','1 0 obj','<< /Type /Catalog /Pages 2 0 R >>','endobj','2 0 obj','<< /Type /Pages /Kids [3 0 R] /Count 1 >>','endobj','3 0 obj','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>','endobj','trailer','<< /Root 1 0 R >>','%%EOF') | Set-Content -LiteralPath $raw -Encoding ascii
+
+          $ErrorActionPreference = 'Continue'
+          # Same input, several simultaneous encrypts to distinct outputs in one
+          # folder - the shared-client-folder shape.
+          $jobs = 1..4 | ForEach-Object {
+            $i = $_
+            $doc = Join-Path $work "doc$i.pdf"
+            & $qpdf $raw $doc 2>&1 | Out-Null
+            Start-Job -ScriptBlock {
+              param($srcDir, $qpdfPath, $inPath, $outPath)
+              . (Join-Path $srcDir 'src\Invoke-QPdf.ps1')
+              $ss = New-Object System.Security.SecureString
+              foreach ($c in '01031990'.ToCharArray()) { $ss.AppendChar($c) }
+              $ss.MakeReadOnly()
+              $r = Protect-Pdf -QpdfPath $qpdfPath -InputPath $inPath -OutputPath $outPath -Password $ss
+              [pscustomobject]@{ Success = $r.Success; Err = $r.ErrorCode; Out = $outPath }
+            } -ArgumentList $src, $qpdf, $doc, (Join-Path $work "doc${i}_protected.pdf")
+          }
+          $results = $jobs | Wait-Job -Timeout 180 | Receive-Job
+          $jobs | Remove-Job -Force -ErrorAction SilentlyContinue
+          $ErrorActionPreference = 'Stop'
+
+          $failed = @($results | Where-Object { -not $_.Success })
+          if ($failed.Count) { throw "concurrent protect failures: $(($failed | ForEach-Object { $_.Err }) -join ', ')" }
+          foreach ($r in $results) { if (-not (Test-Path $r.Out)) { throw "missing output $($r.Out)" } }
+          $leftovers = @(Get-ChildItem -Path $work -Filter '*.tmp' -ErrorAction SilentlyContinue)
+          if ($leftovers.Count) { throw "temp files left behind: $($leftovers.Name -join ', ')" }
+          foreach ($r in $results) {
+            & $qpdf --password=01031990 --decrypt $r.Out (Join-Path $work ("dec-" + (Split-Path $r.Out -Leaf))) 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 3) { throw "concurrent output $($r.Out) does not decrypt" }
+          }
+          Write-Host "4 concurrent protects into one folder: all distinct, all decrypt, no temp left behind."
+
+          # Audit archive: per-machine log -> dated per-host folder, and the
+          # summary must read the ARCHIVE (every host) not just this PC.
+          $archive = Join-Path $env:RUNNER_TEMP 'audit-archive'
+          $localLog = Join-Path $env:RUNNER_TEMP 'concurrent-audit.log'
+          @(
+            '{"ts":"2026-01-02T03:04:05.0000000Z","v":"1.0.0","host":"PC-A","user":"CURO\\alice","op":"protect","outcome":"ok"}'
+            '{"ts":"2026-01-02T03:04:06.0000000Z","v":"1.0.0","host":"PC-A","user":"CURO\\alice","op":"protect","outcome":"fail","error_code":"ESCROW_OFFLINE"}'
+          ) | Set-Content -LiteralPath $localLog -Encoding ascii
+
+          & (Join-Path $src 'admin\Export-AuditArchive.ps1') -ArchiveRoot $archive -AuditPath $localLog | Out-Null
+          if ($LASTEXITCODE -gt 0) { throw "Export-AuditArchive failed" }
+          $snap = @(Get-ChildItem -Path $archive -Filter 'audit-*.log' -Recurse)
+          if ($snap.Count -ne 1) { throw "expected 1 archived snapshot, found $($snap.Count)" }
+
+          # Running twice must not double-count: each run copies the WHOLE log.
+          & (Join-Path $src 'admin\Export-AuditArchive.ps1') -ArchiveRoot $archive -AuditPath $localLog | Out-Null
+          $summary = & (Join-Path $src 'admin\Get-AuditSummary.ps1') -ArchiveRoot $archive -Days 36500 2>&1 | Out-String
+          if ($summary -notmatch '2 unique event') { throw "archive summary did not de-duplicate repeated snapshots:`n$summary" }
+          Write-Host "Audit archive round-trip OK (2 snapshots, 2 unique events)."
+          exit 0
+
       - name: E2E install mode (machine-wide install + uninstall)
         run: |
           # The runner is admin, so exercise the real install path: payload

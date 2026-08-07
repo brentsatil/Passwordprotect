@@ -72,12 +72,22 @@ function Get-ClientList {
         try {
             $source = $primary
             $sourceKind = 'primary'
-            # Refresh cache on successful primary read.
+            # Refresh the cache only when the primary is actually newer or the
+            # size differs. This used to copy the whole CSV on EVERY protect -
+            # once per file, per user - which over a VPN, WAN or OneDrive path
+            # is a per-file stall for the whole team, and concurrent copies on
+            # a shared PC could collide.
             $cacheDir = Split-Path $cache -Parent
             if (-not (Test-Path $cacheDir)) {
                 New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
             }
-            Copy-Item -LiteralPath $primary -Destination $cache -Force
+            $needsRefresh = $true
+            if (Test-Path -LiteralPath $cache) {
+                $pi = Get-Item -LiteralPath $primary
+                $ci = Get-Item -LiteralPath $cache
+                if ($ci.LastWriteTimeUtc -ge $pi.LastWriteTimeUtc -and $ci.Length -eq $pi.Length) { $needsRefresh = $false }
+            }
+            if ($needsRefresh) { Copy-Item -LiteralPath $primary -Destination $cache -Force }
         } catch {
             Write-Warning "Could not refresh client cache from '$primary': $($_.Exception.Message)"
         }
