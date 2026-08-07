@@ -135,8 +135,30 @@ namespace CuroPdfProtect.Launcher
             }
 
             File.WriteAllText(marker, id, new UTF8Encoding(false));
+            PruneOldCaches(root);
             extracted = true;
             return root;
+        }
+
+        /// <summary>
+        /// Remove payload caches from previous exe versions. Each build lands in
+        /// its own hash-named folder, so without this every update leaves another
+        /// ~7.5 MB copy behind per user, forever. Best-effort: a locked file just
+        /// means the folder survives to be cleaned next time.
+        /// </summary>
+        private static void PruneOldCaches(string keep)
+        {
+            try
+            {
+                string parent = Path.GetDirectoryName(keep);
+                if (string.IsNullOrEmpty(parent) || !Directory.Exists(parent)) return;
+                foreach (string dir in Directory.GetDirectories(parent))
+                {
+                    if (string.Equals(dir, keep, StringComparison.OrdinalIgnoreCase)) continue;
+                    try { Directory.Delete(dir, true); } catch { /* in use; next time */ }
+                }
+            }
+            catch { /* pruning must never stop the tool from running */ }
         }
 
         private static bool IsIntact(string root, string marker, string id,

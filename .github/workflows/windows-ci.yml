@@ -210,7 +210,10 @@ jobs:
           $inner = "& '$app\setup.ps1' -Mode Launcher -NonInteractive " +
                    "-ClientListPath '$clientOut' -EscrowDir '$escrowDir' -ClientSource '$fixture' " +
                    "-PfxPath '$pfx' -PfxPassword (ConvertTo-SecureString 'ci-pfx-pw-1' -AsPlainText -Force)"
-          $cmd = "`$env:ProgramData='$pd'; $inner; exit `$LASTEXITCODE"
+          $la  = Join-Path $env:RUNNER_TEMP 'launcher-localappdata'
+          New-Item -ItemType Directory -Force -Path $la | Out-Null
+          $userSettings = Join-Path $la 'CuroPDFProtect\settings.json'
+          $cmd = "`$env:ProgramData='$pd'; `$env:LOCALAPPDATA='$la'; $inner; exit `$LASTEXITCODE"
           $ErrorActionPreference = 'Continue'
           $childOut = & $psExe -NoProfile -ExecutionPolicy Bypass -Command $cmd 2>&1 | Out-String
           $rc = $LASTEXITCODE
@@ -220,7 +223,7 @@ jobs:
           Write-Host "----- exit=$rc -----"
           if ($rc -ne 0) { throw "setup.ps1 -Mode Launcher exited $rc" }
 
-          if (-not (Test-Path (Join-Path $app 'config\settings.json')))        { throw "no launcher settings.json" }
+          if (-not (Test-Path $userSettings))                                  { throw "no per-user settings.json at $userSettings" }
           if (-not (Test-Path (Join-Path $pd  'CuroPDFProtect\escrow.cer')))   { throw "no escrow public cert" }
           if (-not (Test-Path $pfx))                                           { throw "no escrow private pfx" }
           if (@(Import-Csv -LiteralPath $clientOut).Count -ne 2)               { throw "expected 2 published clients (1 malformed row skipped)" }
@@ -230,8 +233,9 @@ jobs:
           Import-Module (Join-Path $app 'src\Config.psm1')  -Force -DisableNameChecking
           Import-Module (Join-Path $app 'src\Protect.psm1') -Force -DisableNameChecking
           $env:ProgramData = $pd
-          $cfg = Get-CuroConfig -Path (Join-Path $app 'config\settings.json')
-          $health = Test-CuroHealth -Path (Join-Path $app 'config\settings.json')
+          $env:LOCALAPPDATA = $la
+          $cfg = Get-CuroConfig -Path $userSettings
+          $health = Test-CuroHealth -Path $userSettings
           if (-not $health.Healthy) { throw "post-setup health not green: $(($health.Issues | ForEach-Object { $_.Component }) -join ', ')" }
 
           # qpdf writes warnings to stderr for the hand-rolled PDF; under
@@ -299,7 +303,8 @@ jobs:
           $pfx = Join-Path $env:RUNNER_TEMP 'splitkey-escrow.pfx'
 
           function Invoke-Setup([string]$ProgramData, [string]$Extra) {
-            $inner = "`$env:ProgramData='$ProgramData'; & '$app\setup.ps1' -Mode Launcher -NonInteractive " +
+            $la = "$ProgramData-local"
+            $inner = "`$env:ProgramData='$ProgramData'; `$env:LOCALAPPDATA='$la'; & '$app\setup.ps1' -Mode Launcher -NonInteractive " +
                      "-ClientListPath '$clientOut' -EscrowDir '$escrowDir' -ClientSource '$fixture' -Force $Extra; exit `$LASTEXITCODE"
             $ErrorActionPreference = 'Continue'
             $out = & $psExe -NoProfile -ExecutionPolicy Bypass -Command $inner 2>&1 | Out-String
@@ -330,7 +335,8 @@ jobs:
           $ErrorActionPreference = 'Continue'
           $env:ProgramData = $pd2
           Import-Module (Join-Path $app 'src\Protect.psm1') -Force -DisableNameChecking
-          $cfg2 = Get-CuroConfig -Path (Join-Path $app 'config\settings.json')
+          $env:LOCALAPPDATA = "$pd2-local"
+          $cfg2 = Get-CuroConfig -Path (Join-Path "$pd2-local" 'CuroPDFProtect\settings.json')
           $work = Join-Path $env:RUNNER_TEMP 'splitkey-work'
           New-Item -ItemType Directory -Force -Path $work | Out-Null
           $raw = Join-Path $work 'raw.pdf'
@@ -356,7 +362,7 @@ jobs:
           # And a genuinely divergent key must be reported unhealthy, not ignored.
           $rogue = Join-Path $env:RUNNER_TEMP 'splitkey-rogue.pfx'
           Remove-Item -LiteralPath $rogue -ErrorAction SilentlyContinue
-          $mk = "`$env:ProgramData='$pd2'; `$env:CURO_SETTINGS_PATH='$app\config\settings.json'; " +
+          $mk = "`$env:ProgramData='$pd2'; `$env:CURO_SETTINGS_PATH='$pd2-local\CuroPDFProtect\settings.json'; " +
                 "& '$app\admin\Rotate-EscrowKey.ps1' -NewPrivateKeyPath '$rogue' -PfxPassword (ConvertTo-SecureString 'rogue' -AsPlainText -Force) | Out-Null; exit 0"
           $ErrorActionPreference = 'Continue'
           & $psExe -NoProfile -ExecutionPolicy Bypass -Command $mk 2>&1 | Out-Null
@@ -365,7 +371,7 @@ jobs:
           # machine 2 genuinely divergent from the published key.
           Copy-Item -LiteralPath (Join-Path $pd1 'CuroPDFProtect\escrow.cer') -Destination $deployCert -Force
           $env:ProgramData = $pd2
-          $h = Test-CuroHealth -Path (Join-Path $app 'config\settings.json')
+          $h = Test-CuroHealth -Path (Join-Path "$pd2-local" 'CuroPDFProtect\settings.json')
           if ($h.Healthy) { throw "a divergent escrow key was NOT reported unhealthy" }
           if (-not ($h.Issues | Where-Object { $_.Component -eq 'escrow key' })) { throw "divergence not attributed to 'escrow key': $(($h.Issues | ForEach-Object { $_.Component }) -join ', ')" }
           Write-Host "Divergent escrow key correctly reported unhealthy."
@@ -531,7 +537,10 @@ jobs:
           $escrowDir = Join-Path $env:RUNNER_TEMP 'exe-escrow'
           $pfx       = Join-Path $env:RUNNER_TEMP 'exe-escrow.pfx'
           $fixture   = Join-Path $src 'tests\fixtures\clients-sample.csv'
-          $settings  = Join-Path $root 'config\settings.json'
+          $la        = Join-Path $env:RUNNER_TEMP 'exe-localappdata'
+          New-Item -ItemType Directory -Force -Path $la | Out-Null
+          $env:LOCALAPPDATA = $la
+          $settings  = Join-Path $la 'CuroPDFProtect\settings.json'
           $env:ProgramData = $pd
 
           # A [securestring] parameter cannot be bound from a command-line string,
@@ -542,7 +551,7 @@ jobs:
           # setup itself creates). So: bootstrap once by calling the PAYLOAD's
           # setup.ps1 with a real SecureString...
           $psExe = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
-          $boot = "`$env:ProgramData='$pd'; & '$root\setup.ps1' -Mode Launcher -NonInteractive " +
+          $boot = "`$env:ProgramData='$pd'; `$env:LOCALAPPDATA='$la'; & '$root\setup.ps1' -Mode Launcher -NonInteractive " +
                   "-ClientListPath '$clientOut' -EscrowDir '$escrowDir' -ClientSource '$fixture' " +
                   "-PfxPath '$pfx' -PfxPassword (ConvertTo-SecureString 'exe-pfx-pw-1' -AsPlainText -Force); exit `$LASTEXITCODE"
           $ErrorActionPreference = 'Continue'
@@ -612,6 +621,48 @@ jobs:
           if ($res2.ErrorCode -ne 'ESCROW_OFFLINE')   { throw "expected ESCROW_OFFLINE, got $($res2.ErrorCode)" }
           if (Test-Path (Join-Path $work 'doc2_protected.pdf')) { throw "fail-closed left a protected file behind" }
           Write-Host "fail-closed through the exe payload OK (ESCROW_OFFLINE, no output left)."
+
+          # 7. An exe UPDATE must not orphan the config. The payload cache is
+          #    keyed by a hash of the exe's contents, so a new build lands in a
+          #    new folder; config kept there would vanish and every user would be
+          #    told "not set up". Rebuild with a changed payload and assert the
+          #    config still resolves, health stays green, and the stale cache is
+          #    pruned rather than accumulating ~7.5 MB per user per version.
+          $liveCfg = & $exe --diagnose 2>&1 | Out-String
+          if ($liveCfg -notmatch '\[LIVE\]') { throw "--diagnose did not report which settings.json is live:`n$liveCfg" }
+          if ($liveCfg -notmatch 'per-user \(LOCALAPPDATA\)') { throw "--diagnose did not probe the per-user config path" }
+
+          $cacheParent = Split-Path -Parent $root
+          $before = @(Get-ChildItem -Path $cacheParent -Directory).Count
+
+          # Must live in a folder the csproj actually embeds (config\*.*), or the
+          # payload hash would not change and this test would prove nothing.
+          $bump = Join-Path $src 'config\payload-stamp.txt'
+          "ci-payload-bump" | Set-Content -LiteralPath $bump -Encoding ascii
+          try {
+            $pub2 = Join-Path $env:RUNNER_TEMP 'launcher-publish-v2'
+            dotnet publish $proj -c Release -o $pub2 | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "v2 publish failed" }
+            $exe2 = Join-Path $pub2 'PasswordProtect.exe'
+            $out2 = & $exe2 --extract-only 2>&1 | Out-String
+            $root2 = ($out2 -split "`r?`n" | Where-Object { $_.Trim() })[0].Trim()
+            if ($root2 -eq $root) { throw "payload id did not change after a payload edit - the update test proves nothing" }
+
+            # The whole point: the NEW exe must still find the config the OLD one wrote.
+            $h2 = & $exe2 --diagnose 2>&1 | Out-String
+            if ($h2 -notmatch '\[LIVE\]') { throw "after update, no live settings.json:`n$h2" }
+            Import-Module (Join-Path $root2 'src\Config.psm1') -Force -DisableNameChecking
+            $cfg2 = Get-CuroConfig
+            if (-not $cfg2) { throw "config did not resolve through the updated exe" }
+            $health2 = Test-CuroHealth
+            if (-not $health2.Healthy) { throw "health broke after an exe update: $(($health2.Issues | ForEach-Object { $_.Component }) -join ', ')" }
+
+            $after = @(Get-ChildItem -Path $cacheParent -Directory).Count
+            if ($after -gt $before) { throw "stale payload caches accumulated ($before -> $after); pruning did not run" }
+            Write-Host "exe update OK: new payload id, config survived, health green, old cache pruned."
+          } finally {
+            Remove-Item -LiteralPath $bump -Force -ErrorAction SilentlyContinue
+          }
           exit 0
 
       - name: Upload test results / crash log

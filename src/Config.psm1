@@ -9,23 +9,47 @@ function Get-CuroConfigPath {
     .SYNOPSIS
         Resolve which settings.json to load. Probe order:
           1. $env:CURO_SETTINGS_PATH  (explicit override; test/CI seam)
-          2. %ProgramData%\CuroPDFProtect\settings.json  (machine-wide install)
-          3. <tool root>\config\settings.json  (no-admin launcher deployment,
-             written by setup.ps1 -Mode Launcher)
-        Returns the first that exists. If none exist, returns the machine-wide
-        path so "not found" errors name the location setup.ps1/install.ps1
-        create. An explicit CURO_SETTINGS_PATH is always honoured, even if the
-        file is missing, so the error names what the operator pointed at.
+          2. %LOCALAPPDATA%\CuroPDFProtect\settings.json  (per-user launcher /
+             portable-exe setup)
+          3. %ProgramData%\CuroPDFProtect\settings.json   (machine-wide install)
+          4. <tool root>\config\settings.json  (legacy launcher location, kept
+             so folder-based deployments set up before the move keep working)
+        Returns the first that exists, else the machine-wide path so "not found"
+        errors name what setup.ps1/install.ps1 create. An explicit
+        CURO_SETTINGS_PATH is always honoured even if missing, so the error
+        names what the operator pointed at.
+    .NOTES
+        Per-user beats machine-wide on purpose. The portable exe extracts to a
+        payload-hash folder that CHANGES with every new build, so config kept
+        under the tool root is orphaned by an update and the whole team is told
+        "not set up" - the per-user path is stable across versions. It also
+        breaks the trap where a PC that once ran Install mode kept loading a
+        stale ProgramData config (pointing at a Program Files qpdf that
+        uninstall.ps1 had deleted) that re-running --setup could never repair.
     #>
     [CmdletBinding()]
     param()
     if ($env:CURO_SETTINGS_PATH) { return $env:CURO_SETTINGS_PATH }
+    $user = Join-Path $env:LOCALAPPDATA 'CuroPDFProtect\settings.json'
+    if (Test-Path -LiteralPath $user) { return $user }
     $machine = Join-Path $env:ProgramData 'CuroPDFProtect\settings.json'
     if (Test-Path -LiteralPath $machine) { return $machine }
     $toolRoot = Split-Path -Parent $PSScriptRoot   # src\ -> install/repo root
     $launcher = Join-Path (Join-Path $toolRoot 'config') 'settings.json'
     if (Test-Path -LiteralPath $launcher) { return $launcher }
     return $machine
+}
+
+function Get-CuroUserConfigPath {
+    <#
+    .SYNOPSIS
+        The stable per-user config location written by setup.ps1 -Mode Launcher.
+        Deliberately NOT under the payload cache, which is keyed by a hash of
+        the exe's contents and therefore changes on every update.
+    #>
+    [CmdletBinding()]
+    param()
+    return (Join-Path $env:LOCALAPPDATA 'CuroPDFProtect\settings.json')
 }
 
 function Get-CuroConfig {
@@ -212,4 +236,4 @@ function Test-CuroHealth {
     return $result
 }
 
-Export-ModuleMember -Function Get-CuroConfig, Test-CuroHealth, Get-CuroConfigPath, Test-CuroBinaryIntegrity, Get-CuroDeploymentCertPath, Get-CuroCertFingerprint
+Export-ModuleMember -Function Get-CuroConfig, Test-CuroHealth, Get-CuroConfigPath, Get-CuroUserConfigPath, Test-CuroBinaryIntegrity, Get-CuroDeploymentCertPath, Get-CuroCertFingerprint

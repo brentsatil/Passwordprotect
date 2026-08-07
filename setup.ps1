@@ -11,8 +11,11 @@
                       settings to %ProgramData%, hardens ACLs.
 
       -Mode Launcher  No-admin, self-contained. The tool runs from this
-                      folder via PasswordProtect.cmd (drag-and-drop). Writes
-                      settings to <this folder>\config\settings.json. No
+                      folder via PasswordProtect.cmd (drag-and-drop), or from
+                      the portable PasswordProtect.exe. Writes settings to
+                      %LOCALAPPDATA%\CuroPDFProtect\settings.json - a per-user
+                      path that stays put across exe updates (the exe's payload
+                      folder is hash-named and changes every build). No
                       registry, no admin. (Reduced tamper-resistance on the
                       audit log - documented in docs/ADMIN-SETUP.md.)
 
@@ -137,11 +140,17 @@ $EscrowDir      = Need $EscrowDir      'EscrowDir'      'Folder for password-rec
 $programData = Join-Path $env:ProgramData 'CuroPDFProtect'
 if (-not (Test-Path -LiteralPath $programData)) { New-Item -ItemType Directory -Path $programData -Force | Out-Null }
 
+# Launcher/portable-exe config goes to a STABLE per-user path, not under the
+# tool root. The exe extracts to a payload-hash folder that changes with every
+# build, so config kept there is orphaned by an update and every user is told
+# "not set up" after a new exe is handed out.
 $settingsTarget = if ($Mode -eq 'Install') {
     Join-Path $programData 'settings.json'
 } else {
-    Join-Path (Join-Path $root 'config') 'settings.json'
+    Join-Path $env:LOCALAPPDATA 'CuroPDFProtect\settings.json'
 }
+$settingsDir = Split-Path -Parent $settingsTarget
+if (-not (Test-Path -LiteralPath $settingsDir)) { New-Item -ItemType Directory -Path $settingsDir -Force | Out-Null }
 
 # All later steps (and the admin scripts we invoke) resolve config through
 # the probe order in Config.psm1; pin it to exactly the file we are writing.
@@ -188,7 +197,32 @@ try {
 foreach ($d in @($programData, (Join-Path $programData 'cache'))) {
     if (-not (Test-Path -LiteralPath $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
 }
+$auditFile = Join-Path $programData 'audit.log'
+if (-not (Test-Path -LiteralPath $auditFile)) { New-Item -ItemType File -Path $auditFile -Force | Out-Null }
 StepOK "Local state folders ready under $programData."
+
+# In Launcher mode %ProgramData%\CuroPDFProtect is created by an ordinary user,
+# so default inheritance gives the creator full control and everyone else only
+# read - which means the NEXT person to log into this PC cannot append to the
+# audit log and is stopped by the health screen with an error only an admin can
+# act on. Grant Users write on the two things the tool actually writes. The
+# creator owns these objects, so this succeeds without elevation; if the folder
+# was made by an admin install it may not, which is fine - Install mode already
+# sets stricter ACLs of its own.
+if ($Mode -ne 'Install') {
+    try {
+        foreach ($target in @((Join-Path $programData 'cache'), $auditFile)) {
+            $acl = Get-Acl -LiteralPath $target
+            $inherit = if (Test-Path -LiteralPath $target -PathType Container) { 'ContainerInherit,ObjectInherit' } else { 'None' }
+            $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+                'BUILTIN\Users', 'Modify', $inherit, 'None', 'Allow')))
+            Set-Acl -LiteralPath $target -AclObject $acl
+        }
+        StepOK 'Shared-PC permissions set (any user of this PC can append to the audit log).'
+    } catch {
+        StepSkip "Could not widen permissions on $programData ($($_.Exception.Message)). Fine for a single-user PC; on a shared PC a second user may not be able to write the audit log."
+    }
+}
 
 # --- Step 5: escrow keypair (ONE key for the whole deployment) --------------
 # The escrow key must be identical on every machine. A PC that mints its own
