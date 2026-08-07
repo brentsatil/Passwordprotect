@@ -75,6 +75,13 @@ $xaml = @"
                  Text="Minimum 10 chars with 3 character classes."/>
     </StackPanel>
 
+    <!-- Shown INSTEAD of ManualPanel in business mode. It must live outside
+         that panel: collapsing the panel would take any hint inside it with
+         it, leaving the manual box gone with nothing explaining why. -->
+    <TextBlock Grid.Row="4" Name="BusinessHint" Visibility="Collapsed"
+               TextWrapping="Wrap" Foreground="#555" Margin="0,0,0,8"
+               Text="Select a client above - their date of birth (DDMMYYYY) is used as the password."/>
+
     <StackPanel Grid.Row="5" Orientation="Vertical" Margin="0,4,0,8">
       <CheckBox Name="OverwriteBox" Content="Overwrite existing _protected file if present"/>
       <CheckBox Name="DeleteBox"    Content="Delete original after protecting (NOT recommended)"/>
@@ -101,6 +108,7 @@ $ManualPanel  = $window.FindName('ManualPanel')
 $ManualPwd    = $window.FindName('ManualPwd')
 $ManualPwd2   = $window.FindName('ManualPwd2')
 $ManualHint   = $window.FindName('ManualHint')
+$BusinessHint = $window.FindName('BusinessHint')
 $OverwriteBox = $window.FindName('OverwriteBox')
 $DeleteBox    = $window.FindName('DeleteBox')
 $OutlookBox   = $window.FindName('OutlookBox')
@@ -115,8 +123,12 @@ if ($ClientList.Warning) {
 }
 
 if ($RequireClientDob) {
-    $ManualPanel.Visibility = 'Collapsed'
-    $ManualHint.Text = 'Business mode: select a client; the client DOB (DDMMYYYY) will be used.'
+    $ManualPanel.Visibility  = 'Collapsed'
+    $BusinessHint.Visibility = 'Visible'
+} else {
+    # Keep the hint honest: the rule is enforced from config, so a site that
+    # raises the minimum must not be told the shipped default.
+    $ManualHint.Text = "Minimum $($Config.manual_password_min_length) chars with $($Config.manual_password_required_classes) character classes (lower, upper, digit, symbol)."
 }
 
 if (-not $OfferOutlook -or -not $Config.outlook_integration) {

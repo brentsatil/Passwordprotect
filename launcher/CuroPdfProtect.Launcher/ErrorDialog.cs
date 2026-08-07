@@ -23,13 +23,15 @@ namespace CuroPdfProtect.Launcher
         private const uint MB_TOPMOST = 0x40000;
         private const uint MB_SETFOREGROUND = 0x10000;
 
+        /// <summary>
+        /// Matches the PowerShell side EXACTLY: src\Show-CuroError.ps1 tests
+        /// -eq '1'. Accepting anything non-empty here would half-suppress a
+        /// value like "true" - dialogs gone on one side, still shown on the
+        /// other - which is worse than either behaviour on its own.
+        /// </summary>
         public static bool UiSuppressed
         {
-            get
-            {
-                string v = Environment.GetEnvironmentVariable("CURO_SUPPRESS_UI");
-                return !string.IsNullOrEmpty(v) && v != "0";
-            }
+            get { return Environment.GetEnvironmentVariable("CURO_SUPPRESS_UI") == "1"; }
         }
 
         public static string ErrorLogPath

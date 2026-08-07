@@ -134,8 +134,31 @@ function Invoke-Main {
     if ($paths.Count -eq 0) {
         $paths = @(& (Join-Path $script:SrcDir 'Prompt-Drop.ps1'))
     }
-    $paths = @($paths | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) })
-    if ($paths.Count -eq 0) { return 0 }   # nothing to do / user closed window
+    # Anything the user actually handed us but that is not a file - a dropped
+    # FOLDER is the common one, since Explorer includes directories in a drop -
+    # must be reported. Silently discarding them and returning 0 is exactly the
+    # "I dropped it and nothing happened" failure this tool works to avoid.
+    $offered  = @($paths | Where-Object { $_ })
+    $paths    = @($offered | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf })
+    $rejected = @($offered | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) })
+    if ($paths.Count -eq 0) {
+        if ($rejected.Count -gt 0) {
+            $folders = @($rejected | Where-Object { Test-Path -LiteralPath $_ -PathType Container })
+            $msg = if ($folders.Count -eq $rejected.Count) {
+                "Folders can't be dropped here - drop the PDFs themselves." + [Environment]::NewLine + [Environment]::NewLine +
+                ($folders -join [Environment]::NewLine) + [Environment]::NewLine + [Environment]::NewLine +
+                'To protect everything in a folder, right-click the folder and choose "Protect all files in folder".'
+            } else {
+                'Nothing could be protected - these are not files:' + [Environment]::NewLine + [Environment]::NewLine +
+                ($rejected -join [Environment]::NewLine)
+            }
+            if ($env:CURO_SUPPRESS_UI -ne '1') {
+                [System.Windows.MessageBox]::Show($msg, 'Curo PDF Protector', 'OK', 'Warning') | Out-Null
+            }
+            return 3   # INPUT_NOT_FOUND
+        }
+        return 0   # user closed the drop window without choosing anything
+    }
 
     # 3. Load clients and require a client/DOB assignment for every PDF.
     . (Join-Path $script:SrcDir 'Find-Client.ps1')

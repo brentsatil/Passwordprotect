@@ -99,6 +99,9 @@ function Get-CuroConfig {
     Assert-ConfigField $cfg 'escrow_dir'          { param($v) $v -match '^\\\\' -or $v -match '^[A-Za-z]:' }
     Assert-ConfigField $cfg 'dob_password_digits' { param($v) [int]$v -ge 6 -and [int]$v -le 12 }
     Assert-ConfigField $cfg 'manual_password_min_length' { param($v) [int]$v -ge 8 }
+    # Unvalidated, a missing key reached Test-ManualComplexity as $null -> [int]0
+    # -> "at least 0 classes" -> complexity enforcement silently switched off.
+    Assert-ConfigField $cfg 'manual_password_required_classes' { param($v) [int]$v -ge 1 -and [int]$v -le 4 }
     Assert-ConfigField $cfg 'audit_log_retention_days'   { param($v) [int]$v -ge 30 }
     Assert-ConfigField $cfg 'qpdf_path' { param($v) -not [string]::IsNullOrWhiteSpace([string]$v) }
 
