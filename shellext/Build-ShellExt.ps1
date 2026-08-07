@@ -52,8 +52,11 @@ $man = Get-Content -LiteralPath $manPath -Raw
 if ($src -notmatch '(?im)^\s*//\s*\{([0-9A-F-]{36})\}') { throw "Could not find the CLSID comment in $srcPath" }
 $srcClsid = $Matches[1].ToUpperInvariant()
 
-$manClsids = [regex]::Matches($man, '(?i)(?:Id|Clsid)="\{?([0-9A-F-]{36})\}?"') |
-             ForEach-Object { $_.Groups[1].Value.ToUpperInvariant() } | Sort-Object -Unique
+# @() is load-bearing: a single match comes back as a STRING, and indexing a
+# string with [0] yields its first CHARACTER, so the comparison below would
+# compare a full GUID against "E". Same PS 5.1 scalar trap the tests hit.
+$manClsids = @([regex]::Matches($man, '(?i)(?:Id|Clsid)="\{?([0-9A-F-]{36})\}?"') |
+             ForEach-Object { $_.Groups[1].Value.ToUpperInvariant() } | Sort-Object -Unique)
 if ($manClsids.Count -ne 1)      { throw "Expected exactly one CLSID in the manifest, found: $($manClsids -join ', ')" }
 if ($manClsids[0] -ne $srcClsid) { throw "CLSID mismatch: dllmain.cpp has $srcClsid, AppxManifest.xml has $($manClsids[0])" }
 Step "CLSID $srcClsid consistent across source and manifest."
