@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sparse (external-location) MSIX package.
+
+  Its ONLY job is to give the tool package identity, which Windows 11 requires
+  before it will show an IExplorerCommand in the default context menu. The
+  actual files - PasswordProtect.exe and CuroShellExt.dll - stay where they
+  are deployed on disk; uap10:AllowExternalContent is what permits that.
+
+  Two things must line up exactly or install fails with a signature mismatch:
+    * Identity/@Publisher must equal the signing certificate's Subject.
+    * com:Class/@Id and desktop5:Verb/@Clsid must equal the CLSID compiled into
+      dllmain.cpp.
+  Build-ShellExt.ps1 checks both rather than leaving it to chance.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+  xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
+  xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
+  IgnorableNamespaces="uap uap10 rescap com desktop4 desktop5">
+
+  <Identity
+    Name="CuroFinancialServices.PDFProtector"
+    Publisher="CN=Curo Financial Services"
+    Version="1.0.0.0"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>Curo PDF Protector</DisplayName>
+    <PublisherDisplayName>Curo Financial Services</PublisherDisplayName>
+    <Logo>Images\StoreLogo.png</Logo>
+    <!-- Required for a SPARSE package: the payload (PasswordProtect.exe,
+         CuroShellExt.dll) lives outside the package, at the folder passed to
+         Add-AppxPackage -ExternalLocation. Without this, registration is
+         rejected. -->
+    <uap10:AllowExternalContent>true</uap10:AllowExternalContent>
+  </Properties>
+
+  <Dependencies>
+    <!-- 22000 = Windows 11 21H2, the first build with the new context menu.
+         MaxVersionTested must be above 10.0.21300.0 for the modern verb. -->
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.22000.0" MaxVersionTested="10.0.22621.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-au" />
+  </Resources>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+
+  <Applications>
+    <Application Id="CuroPDFProtector" uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
+      <uap:VisualElements
+        DisplayName="Curo PDF Protector"
+        Description="Protect a client PDF with their date of birth as the password."
+        BackgroundColor="transparent"
+        Square150x150Logo="Images\Square150x150Logo.png"
+        Square44x44Logo="Images\Square44x44Logo.png"
+        AppListEntry="none" />
+
+      <Extensions>
+        <!-- The COM server Explorer instantiates for the verb. -->
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:SurrogateServer DisplayName="Curo PDF Protector shell extension">
+              <com:Class Id="E9143454-7592-4892-BAFA-1DD9507FB947"
+                         Path="CuroShellExt.dll"
+                         ThreadingModel="STA" />
+            </com:SurrogateServer>
+          </com:ComServer>
+        </com:Extension>
+
+        <!-- The modern context-menu entry itself. Scoped to .pdf: the legacy
+             registry verbs used the `*` ProgID and so offered "Protect with
+             password" on every file type, including .exe, which contradicts
+             the documented PDF-only scope. -->
+        <desktop4:Extension Category="windows.fileExplorerContextMenus">
+          <desktop4:FileExplorerContextMenus>
+            <desktop5:ItemType Type=".pdf">
+              <desktop5:Verb Id="CuroProtectWithPassword"
+                             Clsid="E9143454-7592-4892-BAFA-1DD9507FB947" />
+            </desktop5:ItemType>
+          </desktop4:FileExplorerContextMenus>
+        </desktop4:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+</Package>

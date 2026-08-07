@@ -754,6 +754,91 @@ jobs:
           }
           exit 0
 
+      - name: Windows 11 modern context menu (build + sign the sparse package)
+        run: |
+          # Windows 11 shows an extension in the DEFAULT context menu only if it
+          # implements IExplorerCommand AND the app has package identity. This
+          # builds both halves: the native COM server and the sparse MSIX.
+          #
+          # What CI can prove: it compiles, the CLSID agrees across source and
+          # manifest, the package packs, and it SIGNS and validates. What CI
+          # cannot prove is that the verb appears in Explorer - the runner has
+          # no interactive shell. That is step 4 of docs\WIN11-ACCEPTANCE.md.
+          $ErrorActionPreference = 'Stop'
+          $src = (Get-Location).Path
+          $out = Join-Path $env:RUNNER_TEMP 'shellext-out'
+
+          # Reuse the launcher exe built earlier in this job.
+          $launcher = Join-Path $env:RUNNER_TEMP 'launcher-publish\PasswordProtect.exe'
+          if (-not (Test-Path $launcher)) { throw "launcher exe missing - the earlier build step should have produced it" }
+
+          & (Join-Path $src 'shellext\Build-ShellExt.ps1') -OutputDir $out -LauncherExe $launcher
+
+          $dll  = Join-Path $out 'CuroShellExt.dll'
+          $msix = Join-Path $out 'CuroPDFProtect.msix'
+          foreach ($f in @($dll, $msix, (Join-Path $out 'PasswordProtect.exe'))) {
+            if (-not (Test-Path $f)) { throw "build did not produce $f" }
+          }
+          Write-Host ("CuroShellExt.dll {0:N0} bytes; package {1:N0} bytes" -f (Get-Item $dll).Length, (Get-Item $msix).Length)
+
+          # It must be a real x64 PE exporting the COM entry points, or Explorer
+          # would load it and find nothing.
+          $bytes = [IO.File]::ReadAllBytes($dll)
+          $peOff = [BitConverter]::ToInt32($bytes, 0x3C)
+          $machine = [BitConverter]::ToUInt16($bytes, $peOff + 4)
+          if ($machine -ne 0x8664) { throw ("CuroShellExt.dll is not x64 (machine 0x{0:X})" -f $machine) }
+          $dumpbin = Get-ChildItem 'C:\Program Files*\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe' -ErrorAction SilentlyContinue |
+                     Select-Object -First 1
+          if ($dumpbin) {
+            $exports = & $dumpbin.FullName /exports $dll | Out-String
+            foreach ($fn in 'DllGetClassObject','DllCanUnloadNow') {
+              if ($exports -notmatch $fn) { throw "CuroShellExt.dll does not export $fn" }
+            }
+            Write-Host "Exports present: DllGetClassObject, DllCanUnloadNow"
+          } else {
+            Write-Host "NOTE: dumpbin not found - export check skipped (PE arch still verified)."
+          }
+
+          # Signed, and the signature must actually validate: an unsigned or
+          # mis-signed sparse package cannot be installed at all.
+          $sig = Get-AuthenticodeSignature -LiteralPath $msix
+          if (-not $sig.SignerCertificate) { throw "package is not signed" }
+          Write-Host "Signed by: $($sig.SignerCertificate.Subject) (status $($sig.Status))"
+          # Self-signed in CI, so the runner does not trust it - UnknownError is
+          # expected here. What must NOT happen is a tampered/invalid signature.
+          if ($sig.Status -notin @('Valid','UntrustedRoot','UnknownError')) {
+            throw "unexpected signature status: $($sig.Status)"
+          }
+
+          # The certificate subject MUST equal Identity/@Publisher or the
+          # install fails with an opaque mismatch on the user's machine.
+          $man = Get-Content (Join-Path $src 'shellext\package\AppxManifest.xml') -Raw
+          if ($man -notmatch 'Publisher="([^"]+)"') { throw 'no Publisher in manifest' }
+          $publisher = $Matches[1]
+          if ($sig.SignerCertificate.Subject -ne $publisher) {
+            throw "signer subject '$($sig.SignerCertificate.Subject)' != manifest Publisher '$publisher'"
+          }
+          Write-Host "Signer subject matches manifest Publisher."
+
+          # Install-ShellExt must refuse Windows 10 and refuse a temp external
+          # location - both produce broken installs that are hard to diagnose.
+          $guard = & (Join-Path $src 'shellext\Install-ShellExt.ps1') -PackageDir $env:TEMP *>&1 | Out-String
+          if ($guard -notmatch 'temp folder|Windows 11') { throw "Install-ShellExt did not guard a temp external location:`n$guard" }
+          Write-Host "Install-ShellExt refuses a temp external location."
+          Write-Host "Modern context menu builds, packs, signs and validates."
+          exit 0
+
+      - name: Upload Windows 11 context-menu package
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: CuroPDFProtect-shellext
+          path: |
+            ${{ runner.temp }}/shellext-out/CuroShellExt.dll
+            ${{ runner.temp }}/shellext-out/CuroPDFProtect.msix
+            ${{ runner.temp }}/shellext-out/CuroPDFProtect-selfsigned.cer
+          if-no-files-found: error
+
       - name: Upload test results / crash log
         if: always()
         uses: actions/upload-artifact@v4

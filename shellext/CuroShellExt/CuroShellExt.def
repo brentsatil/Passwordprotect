@@ -1,0 +1,4 @@
+LIBRARY CuroShellExt
+EXPORTS
+    DllGetClassObject   PRIVATE
+    DllCanUnloadNow     PRIVATE
