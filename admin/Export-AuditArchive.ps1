@@ -75,8 +75,14 @@ try {
     throw "Audit archive '$ArchiveRoot' is unreachable: $($_.Exception.Message)"
 }
 
+# Seconds alone are not unique enough: two runs in the same second (a retry, or
+# a scheduled task firing alongside a manual run) would land on the same name
+# and the second would silently overwrite the first snapshot.
 $stamp  = $now.ToString('yyyyMMdd-HHmmss')
 $target = Join-Path $dest "audit-$stamp.log"
+if (Test-Path -LiteralPath $target) {
+    $target = Join-Path $dest ("audit-$stamp-" + [System.Guid]::NewGuid().ToString('N').Substring(0, 6) + '.log')
+}
 
 # Copy via a temp name then move, so a reader never sees a half-written file.
 $tmp = "$target.partial"

@@ -452,10 +452,17 @@ jobs:
           $snap = @(Get-ChildItem -Path $archive -Filter 'audit-*.log' -Recurse)
           if ($snap.Count -ne 1) { throw "expected 1 archived snapshot, found $($snap.Count)" }
 
-          # Running twice must not double-count: each run copies the WHOLE log.
+          # Running twice must not double-count: each run copies the WHOLE log,
+          # so the same events appear in both snapshots.
           & (Join-Path $src 'admin\Export-AuditArchive.ps1') -ArchiveRoot $archive -AuditPath $localLog | Out-Null
-          $summary = & (Join-Path $src 'admin\Get-AuditSummary.ps1') -ArchiveRoot $archive -Days 36500 2>&1 | Out-String
-          if ($summary -notmatch '2 unique event') { throw "archive summary did not de-duplicate repeated snapshots:`n$summary" }
+          $snap2 = @(Get-ChildItem -Path $archive -Filter 'audit-*.log' -Recurse)
+          if ($snap2.Count -ne 2) { throw "expected 2 distinct snapshots after a second run, found $($snap2.Count)" }
+
+          # Capture ALL streams: the script reports via Write-Host, which goes to
+          # the information stream and is NOT picked up by 2>&1 alone.
+          $summary = & (Join-Path $src 'admin\Get-AuditSummary.ps1') -ArchiveRoot $archive -Days 36500 *>&1 | Out-String
+          if ($summary -notmatch '2 snapshot') { throw "summary did not read both snapshots:`n$summary" }
+          if ($summary -notmatch 'Events:\s+2') { throw "archive summary did not de-duplicate repeated snapshots (expected 2 events):`n$summary" }
           Write-Host "Audit archive round-trip OK (2 snapshots, 2 unique events)."
           exit 0
 
