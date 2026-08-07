@@ -33,6 +33,37 @@ Get it by either:
   `windows-ci` workflow, or
 - building it: `dotnet publish launcher\CuroPdfProtect.Launcher -c Release -o publish`
 
+### Getting it to the team safely
+
+- **Put it on a share that staff can read and only IT can write.** The exe is the
+  one binary here with no hash pinning protecting it - everything inside `bin\`
+  is SHA-256 verified, but the exe that carries them is not. Anyone who can write
+  to that share effectively owns every PC that runs it. `Users: Read & Execute`,
+  write restricted to you.
+- **Record its hash** when you publish it, so you can confirm what staff are
+  running: `Get-FileHash .\PasswordProtect.exe -Algorithm SHA256`. Compare with
+  `PasswordProtect.exe --version`, which prints the payload id.
+- **Do not email it.** A `.exe` attachment is stripped by essentially every mail
+  filter and by M365 Safe Attachments.
+- **Expect a Mark-of-the-Web prompt** if it arrives via a browser download (the
+  CI artifact is a downloaded zip - the highest-risk route) or from a share in an
+  untrusted zone. The user sees a full-screen blue **"Windows protected your PC"**
+  whose only visible button is *Don't run*; they must click **More info -> Run
+  anyway**. Staff reasonably read this as "IT says this is malware". Clear it once
+  centrally instead:
+
+  ```powershell
+  Unblock-File .\PasswordProtect.exe      # or: right-click -> Properties -> Unblock
+  ```
+
+  Adding the share to **Local intranet / Trusted sites** stops the mark being
+  applied in the first place. Windows 11 (June 2024+) applies MotW to files from
+  untrusted networks, so a share reached by FQDN or IP often counts as Internet.
+- **Check Smart App Control** on one machine before you roll out (Windows
+  Security -> App & browser control). On a clean-installed Windows 11 it blocks
+  unsigned executables regardless of MotW, and `Unblock-File` will not help. If
+  it is on, you need a signing certificate - see `docs\DECISIONS.md` #14.
+
 Then, once per machine:
 
 1. Copy `PasswordProtect.exe` anywhere (a shared drive is fine).

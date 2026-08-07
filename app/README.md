@@ -129,14 +129,35 @@ publishers. For this portable, shared-drive deployment:
    ```
    The signing step (`PasswordProtect.Build/Sign.targets`) is a no-op when no
    cert is supplied, so unsigned builds keep working.
-2. **No certificate?** Running the exe from a *trusted internal share* generally
-   avoids the "unknown publisher" prompt (files copied from a mapped drive
-   usually carry no Mark-of-the-Web). IT can also allowlist it by hash/path in
-   AV/SmartScreen.
-3. **Buying one is optional** and only worth it if warnings actually appear. A
-   standard OV certificate (~$100–300/yr) needs to build SmartScreen reputation;
-   an EV certificate gives instant reputation but costs more and needs a hardware
-   token.
+2. **No certificate?** Running from a *trusted internal share* can avoid the
+   Mark-of-the-Web prompt, but this depends on the share's security zone and is
+   no longer a safe assumption: Windows 11 (June 2024 and later) applies MotW to
+   files from untrusted networks, and the 24H2 security baseline ships the
+   "Do not apply the Mark of the Web tag to files copied from insecure sources"
+   policy **Disabled**. A share reached by FQDN or IP commonly lands in the
+   Internet zone. Add it to Local intranet / Trusted sites, or have users run
+   `Unblock-File`. Note this only removes the *zone* mark — it does nothing about
+   an unsigned publisher.
+3. **Buying one is worth it, but not for the reason people expect.**
+   - **EV certificates have not bypassed SmartScreen since 2024.** Microsoft:
+     *"EV certificates no longer bypass SmartScreen... Paying a premium for EV
+     solely to avoid SmartScreen warnings is no longer justified."* The claim
+     that EV grants instant reputation used to be true and is now wrong.
+   - Signing of any kind does **not** clear the warning immediately: reputation
+     accrues per file hash and *"can take several weeks and hundreds of clean
+     installs from a wide audience"* — a volume a small practice will never hit.
+   - What signing actually buys: a **named publisher** instead of "Unknown
+     publisher", the ability to allowlist by publisher rather than by a hash
+     that changes every build, and eligibility under Smart App Control. Sign
+     every release — unsigned files cannot inherit reputation from the cert.
+   - Cheapest practical route: **Azure Artifact Signing (~$10/month)**, no
+     hardware token, works from CI.
+4. **Check Smart App Control** (Windows Security -> App & browser control). On a
+   clean-installed Windows 11 it blocks unsigned executables *regardless* of
+   MotW, and once turned off it cannot be re-enabled without reinstalling
+   Windows — so behaviour differs between a factory-fresh laptop and an
+   in-place upgrade. Takes a minute to check and decides whether an unsigned
+   build is viable at all.
 
 ## Layout
 

@@ -56,6 +56,7 @@ The launcher no longer disappears silently on failure:
 | Hand the tool to a teammate | `PasswordProtect.exe` (one portable file; see `docs\ADMIN-SETUP.md`) |
 | First-time setup on a machine | `setup.ps1`, or `PasswordProtect.exe --setup` |
 | Roll out to the team | `docs\PILOT-CHECKLIST.md` |
+| Check it works on a real Windows 11 PC | `docs\WIN11-ACCEPTANCE.md` (do this before handing it out) |
 | Staff quick reference | `docs\CHEATSHEET.md` |
 | Uninstall | `uninstall.ps1` |
 | Protect a file | Right-click in Explorer → **Protect with password** |

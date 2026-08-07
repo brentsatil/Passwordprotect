@@ -56,7 +56,12 @@ the password that protects that `.pfx`. Brent or Ian only.*
 2. Open PowerShell and run (adjust the drive letter for the USB):
 
    ```powershell
+   # Install mode:
    cd 'C:\Program Files\CuroPDFProtect\admin'
+   # Portable exe: the scripts live in the per-user payload cache -
+   #   PasswordProtect.exe --extract-only    prints the folder; admin\ is inside it.
+   # Folder/launcher mode: admin\ sits beside PasswordProtect.cmd.
+
    .\Recover-File.ps1 -PrivateKeyPath E:\curo-escrow.pfx `
                       -OutputPath '\\server\clients\SoA_Smith_protected.pdf'
    ```
@@ -107,14 +112,24 @@ Either way, verify with `Get-PDFProtectDiagnostics.ps1` before rolling wider.
 Annually, or immediately on suspected compromise or departure of anyone
 with USB access.
 
-1. Generate a replacement keypair: `admin\Rotate-EscrowKey.ps1
-   -NewPrivateKeyPath E:\curo-escrow-YYYYMMDD.key`.
-2. The old USB is **retained** in the safe (files protected under the old
-   key can only be recovered with the old key — forever).
-3. Make the off-site second copy of the new USB.
-4. Verify by protecting a fresh test file and recovering it with the new
-   key.
-5. Update the asset register with the new pubkey fingerprint.
+Rotate **once, on one machine.** The script publishes the new certificate to the
+shared escrow location, so every other PC picks it up automatically. Never run a
+key generation on each PC — that is the split-key failure described in
+`docs\ADMIN-SETUP.md`, just delayed by a year.
+
+1. Generate a replacement keypair (note the extension is `.pfx`, not `.key`):
+   `admin\Rotate-EscrowKey.ps1 -NewPrivateKeyPath E:\curo-escrow-YYYYMMDD.pfx`
+2. Confirm it printed **"Published as the deployment key: ..."**. If it warned
+   that publication failed, copy the new `escrow.cer` to
+   `<escrow folder>\_deployment\escrow.cer` by hand — otherwise the other PCs
+   keep wrapping under the retired key.
+3. The old USB is **retained** in the safe, forever: files protected under the
+   old key can only ever be recovered with the old key.
+4. Make the off-site second copy of the new USB.
+5. On a **different** PC, run `Test-CuroHealth` and confirm no `escrow key`
+   issue, then protect a test file and recover it with the new key. That proves
+   the rotation actually reached the rest of the practice.
+6. Update the asset register with the new pubkey fingerprint.
 
 ## 7. Onboarding a new staff member
 

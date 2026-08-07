@@ -205,7 +205,17 @@ Every deployed tool generates tickets. Expect:
 - Published KB article with the three answers above.
 - Admin-recovery workflow (escrow key) for the first one.
 - Installer bundles the 7-Zip download link to send to recipients.
-- Authenticode signature on everything to satisfy SmartScreen.
+- Authenticode-sign every release. Be clear about what that does and does not
+  buy: signing does **not** "satisfy" SmartScreen. Reputation accrues per file
+  hash and, per Microsoft, *"can take several weeks and hundreds of clean
+  installs from a wide audience"* — a volume this practice will never reach, so
+  expect the prompt to persist. What signing gives you is a **named publisher**
+  in the dialog instead of "Unknown publisher", and allowlisting by publisher
+  rather than by a hash that changes on every build. EV certificates stopped
+  bypassing SmartScreen in 2024 and are not worth the premium for this purpose.
+- Separately, check **Smart App Control** on the fleet: on a clean-installed
+  Windows 11 it blocks unsigned executables regardless of Mark-of-the-Web, and
+  `Unblock-File` does not help.
 
 ---
 

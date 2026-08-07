@@ -4,14 +4,19 @@ Keep this by your desk. One page, everything you need day to day.
 
 ## Protecting a PDF
 
+**Drag-and-drop way** (easiest, works everywhere):
+1. Drag the PDF (or several) onto **PasswordProtect.exe**
+   (or `PasswordProtect.cmd` if you were given the folder version).
+2. For each file, pick the client from the list, click Protect.
+3. Double-clicking it instead opens a window you can drop files onto.
+
 **Right-click way** (if it's installed on your PC):
 1. Right-click the PDF in File Explorer.
-2. Choose **Protect with password** (or **Protect and attach to new email**).
-3. Start typing the client's name, pick them from the list, click Protect.
-
-**Drag-and-drop way** (the launcher):
-1. Drag the PDF (or several) onto **PasswordProtect.cmd**.
-2. For each file, pick the client from the list, click Protect.
+2. **On Windows 11 you must click "Show more options" first** - or press
+   **Shift+F10** instead of right-clicking, which opens that menu directly.
+   Windows 11 tucks add-in commands like ours under there; nothing is broken.
+3. Choose **Protect with password** (or **Protect and attach to new email**).
+4. Start typing the client's name, pick them from the list, click Protect.
 
 Either way you get a new file next to the original called
 `<name>_protected.pdf`. The original is left alone.
@@ -36,6 +41,18 @@ example 3 December 1970 is 03121970."*
 - **Client says the password doesn't work** - double-check their DOB in the
   client list matches what they gave you. If still stuck, ask an admin to
   recover it (they can, from the escrow record).
+- **"Protect with password" isn't in the right-click menu** - on Windows 11 it
+  lives under **Show more options** (or press Shift+F10). If it isn't there
+  either, this PC hasn't had the right-click menu installed; use drag-and-drop.
+- **A blue "Windows protected your PC" screen** the first time you run the exe -
+  that's Windows not recognising an in-house tool, not a virus warning. Click
+  **More info -> Run anyway**, and tell whoever set it up so they can clear it
+  for everyone.
+- **Dropped a folder and nothing looked right** - drop the PDFs themselves. To do
+  a whole folder, right-click the folder and choose *Protect all files in folder*.
+- **"Protect and attach to new email" put the file on my desktop instead** -
+  you're on the new Outlook, which the tool can't attach to directly. The file is
+  on your desktop, ready to drag into your email.
 
 ## Rules of thumb
 
