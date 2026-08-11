@@ -115,6 +115,24 @@ Which of the two blocks applies depends on what was installed on this PC.
       *Show more options* - both run the identical tool; that is expected,
       not a duplicate install.
 
+## 4b. Clear any leftover verb from the old prototype
+
+Only needed on a PC where someone once ran the removed `app\` prototype's
+`--register-context-menu`. It left a per-user Explorer entry with the **same
+label** as the real one that does **not** escrow, and `uninstall.ps1` has never
+touched `HKCU`. Deleting the prototype's source did not remove it.
+
+- [ ] Run this (no elevation needed); it is safe on a PC that never had it:
+
+      ```powershell
+      foreach ($e in '.pdf','.docx','.xlsx','.pptx') {
+        Remove-Item -Path "HKCU:\Software\Classes\SystemFileAssociations\$e\shell\PasswordProtect" `
+                    -Recurse -Force -ErrorAction SilentlyContinue
+      }
+      ```
+
+- [ ] Right-click a PDF: there is exactly **one** *Protect with password*, not two.
+
 ## 5. Failure paths behave
 
 - [ ] Rename the client list on the share, run the tool: you get a clear
@@ -154,6 +172,7 @@ Which of the two blocks applies depends on what was installed on this PC.
 | Batch window: 3 files, assign, per-row status | | | |
 | Batch window: cancel mid-run behaves | | | |
 | Explorer verb found (main menu, or under Show more options) | | | |
+| Old prototype verb cleared (one menu entry only) | | | |
 | Fail-closed proven | | | |
 | Recovery drill from an adopting PC | | | |
 

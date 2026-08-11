@@ -84,10 +84,10 @@
   </ItemGroup>
 
   <!--
-    Optional Authenticode signing, shared with the app/ prototype's build hook.
+    Optional Authenticode signing.
     Pass -p:SignCertThumbprint=... or -p:SignCertPfx=...+-p:SignCertPassword=...
     No-op when no certificate is supplied.
   -->
-  <Import Project="..\..\app\PasswordProtect.Build\Sign.targets" />
+  <Import Project="..\Sign.targets" />
 
 </Project>

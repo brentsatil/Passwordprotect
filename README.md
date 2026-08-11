@@ -7,13 +7,6 @@ matching Outlook shortcut protects-and-attaches in one step.
 
 Password recovery is guaranteed via RSA key escrow. No password is ever logged.
 
-> **Two implementations live in this repo.** Everything described in this README and in
-> `docs\` is the **PowerShell tool at the repo root — the supported product.** A second,
-> exploratory .NET 8 / WPF app sits under `app\`; it predates the PDF-only rework, has
-> **no escrow and no audit log**, and must not be used on client files. See
-> `app\README.md` and entry 25 in `docs\DECISIONS.md`. Statements below describe the
-> root tool unless they say otherwise.
-
 ## Business launcher
 
 Double-click **`PasswordProtect.cmd`** to open the same business protection flow
@@ -66,7 +59,7 @@ The launcher no longer disappears silently on failure:
 
 | Task | Where |
 |------|-------|
-| Hand the tool to a teammate | `PasswordProtect.exe` (one portable file, built from `launcher\` — never the same-named exe from `app\`; see `docs\ADMIN-SETUP.md`) |
+| Hand the tool to a teammate | `PasswordProtect.exe` (one portable file, built from `launcher\`; see `docs\ADMIN-SETUP.md`) |
 | First-time setup on a machine | `setup.ps1`, or `PasswordProtect.exe --setup` |
 | Roll out to the team | `docs\PILOT-CHECKLIST.md` |
 | Check it works on a real Windows 11 PC | `docs\WIN11-ACCEPTANCE.md` (do this before handing it out) |
@@ -84,9 +77,8 @@ The launcher no longer disappears silently on failure:
 
 - **PDF path:** real PDF AES-256 encryption via `qpdf`. Output opens in any
   viewer (Adobe, Edge, Preview) with the password.
-- **Non-PDF files:** refused in v1 business mode. (This is the root tool's rule. The
-  exploratory `app\` does encrypt Office documents — one of the reasons it is not the
-  supported path.)
+- **Non-PDF files:** refused in v1 business mode — see `docs\RISK.md` #5 for why the
+  scope is deliberately PDF-only.
 - **Client picker** with type-ahead over `clients.csv`, published from the
   master client spreadsheet. Selecting a client auto-fills their DOB as
   password in `DDMMYYYY` format (no separators).
@@ -140,10 +132,8 @@ The launcher no longer disappears silently on failure:
   appear under **Show more options**; the optional `shellext\` package
   (`shellext\Install-ShellExt.ps1`) puts **Protect with password** in the MAIN
   right-click menu (needs a signed sparse MSIX — see `docs\ADMIN-SETUP.md`).
-  If the `app\` prototype has also
-  been registered on a machine it adds its own **identically labelled** per-user entry
-  under `HKCU\...\SystemFileAssociations`; the two are additive and only this one
-  escrows. `uninstall.ps1` removes only the `HKLM` entries.
+  `uninstall.ps1` removes the `HKLM` entries; `shellext\Uninstall-ShellExt.ps1`
+  removes the modern-menu package.
 - Small team? Follow `docs\PILOT-CHECKLIST.md`. GPO startup-script deployment
   and AD "ring" groups (`install.ps1 -SourcePath \\deploy$\...`) remain
   available for larger, IT-managed estates.
@@ -197,13 +187,14 @@ tests\
     clients-sample.csv          sample client list used by tests
 launcher\                       portable-exe wrapper around THIS tool (net48;
   CuroPdfProtect.Launcher\      embeds src\+bin\, extracts, runs PasswordProtect.ps1)
+  Sign.targets                  optional Authenticode hook (no-op without a cert)
 shellext\                       OPTIONAL Windows 11 main-menu right-click entry:
   CuroShellExt\                 IExplorerCommand COM server (native x64), plus a
   package\                      sparse MSIX for package identity. PDF-only verb;
                                 Build-/Install-/Uninstall-ShellExt.ps1 manage it.
-app\                            EXPLORATORY .NET 8 / WPF prototype - NOT the supported
-                                tool, no escrow, no audit log. See app\README.md.
 ```
 
-Two CI workflows run on every push: `windows-ci.yml` gates the PowerShell tool
-(the product) and `app-ci.yml` builds and tests the `app\` prototype.
+One CI workflow gates everything: `windows-ci.yml` runs the Pester suites, the
+end-to-end protect/escrow/recovery proofs, both deployment modes, the portable
+exe and the Windows 11 package, on `windows-latest`. Pushes to `main` also
+publish the two deployable artifacts.

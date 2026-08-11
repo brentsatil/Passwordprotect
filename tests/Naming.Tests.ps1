@@ -106,8 +106,12 @@ Describe 'Get-ProtectedOutputPath' {
             Should -Be 'C:\x\C-0042-doc_protected.pdf'
     }
     It 'expands {ClientRef} to nothing when there is no client (manual-password path)' {
-        $cfg = New-NamingConfig -Template '{OriginalName}_{ClientRef}protected'
-        Get-ProtectedOutputPath -Config $cfg -InputPath 'C:\x\doc.pdf' | Should -Be 'C:\x\doc__protected.pdf'
+        # Separators either side so the empty expansion is unmistakable - with a
+        # single separator the result would coincide with the default naming and
+        # the test would prove nothing.
+        $cfg = New-NamingConfig -Template '{OriginalName}-{ClientRef}-protected'
+        # doc + "-" + "" + "-" + protected  ->  doc--protected
+        Get-ProtectedOutputPath -Config $cfg -InputPath 'C:\x\doc.pdf' | Should -Be 'C:\x\doc--protected.pdf'
     }
     It 'expands date tokens from an injected timestamp' {
         $cfg = New-NamingConfig -Template '{OriginalName}-{Date}-{DateCompact}'

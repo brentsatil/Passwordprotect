@@ -252,33 +252,44 @@ Files-on-demand adds a second edge: an "online-only" `clients.csv` passes
 
 ---
 
-## 13. A second implementation on `main` bypasses these controls
+## 13. A second implementation on `main` bypasses these controls - RESOLVED 2026-08-11
 
-Every mitigation in this register describes the PowerShell tool at the repo root. The
-exploratory .NET app under `app\` (merged 2026-07-27) implements **none** of the escrow,
-audit, PDF-only or command-line-password controls above. Every file it protects — the
-ordinary `_protected` copy included, not just the opt-in in-place overwrite — is
-AES-256 encrypted with no recovery record and no audit entry, so a forgotten password
-is unrecoverable and nothing shows the operation happened. Ticking *Overwrite in place*
-(off by default, behind a "cannot be undone" confirm) additionally destroys the
-plaintext original, leaving no readable copy at all.
+**Closed.** The exploratory .NET app under `app\` has been **removed from `main`**, and
+with it every risk recorded here: it had no escrow and no audit log, registered an
+Explorer verb with the *same label* as the compliant one, and built an exe with the same
+filename as the supported launcher.
 
-The sharpest edge is that both register an Explorer verb with the **same label**
-("Protect with password"), so on a machine with both, the compliant and non-compliant
-paths are visually indistinguishable — and `uninstall.ps1` removes only the root tool's.
+Its genuinely useful parts - the batch queue with per-file status, and configurable
+output naming - were ported into the supported tool first, where they drive the audited
+core (`src\Prompt-Batch.ps1`, `src\BatchQueue.psm1`, `src\Naming.psm1`). Office
+encryption was deliberately not ported: it is outside the PDF-only scope in #5, and the
+prototype's implementation never verified the integrity HMAC it wrote. See
+`docs\DECISIONS.md` entries 25 and 26.
 
-**Mitigation**
+The history is preserved on branch `claude/password-protected-docs-e09cmy` and in merge
+commit `878269b`, so nothing is lost.
 
-- Documented, not engineered: `app\README.md` and the root `README.md` both state the
-  app is not the supported tool and not for client files.
-- Do not publish or distribute `app\PasswordProtect.exe` to staff. Nothing builds or
-  ships it automatically; it requires a deliberate `dotnet publish`.
-- Resolve the keep / scope / remove decision — `docs\DECISIONS.md` entry 25. Until then
-  treat any `app\`-produced file as unrecoverable and unlogged.
-- If the app is ever kept, the minimum bar before any staff use is escrow + audit
-  parity, a distinct context-menu label, and `uninstall.ps1` clearing both entries.
+**Residual risk: a machine that ran the prototype before removal.** Deleting the source
+does not unregister what it wrote. On any PC where someone ran
+`app\PasswordProtect.exe --register-context-menu`, a per-user verb labelled
+*"Protect with password"* remains under
+`HKCU\Software\Classes\SystemFileAssociations\<ext>\shell\PasswordProtect`, pointing
+at an exe that no longer exists (harmless) or a stale copy (not harmless - it does not
+escrow). `uninstall.ps1` has never touched `HKCU`.
 
----
+**Mitigation:** as part of the Windows 11 acceptance pass, check for and delete that key
+on each PC. It is one command per machine:
+
+```powershell
+foreach ($e in '.pdf','.docx','.xlsx','.pptx') {
+  Remove-Item -Path "HKCU:\Software\Classes\SystemFileAssociations\$e\shell\PasswordProtect" `
+              -Recurse -Force -ErrorAction SilentlyContinue
+}
+```
+
+Any file the prototype protected before removal remains **unrecoverable and unlogged** -
+there is no sidecar for `admin\Recover-File.ps1` to read. If staff used it on client
+files, those passwords exist only wherever the person recorded them.
 
 ## 14. Over-blocking productivity
 

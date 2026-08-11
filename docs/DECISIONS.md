@@ -209,9 +209,9 @@ decide the intended behaviour for the launcher and align the code or entry 1.
 
 # Two implementations on main (2026-07-27)
 
-## 25. The `app\` .NET prototype - **decision required**
+## 25. The `app\` .NET prototype - **RESOLVED 2026-08-11: ported, then removed**
 
-**Status: recorded, not resolved.** The `claude/password-protected-docs-e09cmy`
+**Status: closed - see "The decision" below.** The `claude/password-protected-docs-e09cmy`
 branch was merged into `main`, adding a second, independent implementation under
 `app\`: a .NET 8 / WPF desktop app (qpdf for PDF, from-scratch MS-OFFCRYPTO for
 Office, 7-Zip fallback) with its own CI (`app-ci.yml`). It was written in June,
@@ -221,8 +221,8 @@ It was merged to preserve the work, not to ship it.
 **The PowerShell tool at the repo root remains the supported product.** Nothing in
 `docs\ADMIN-SETUP.md`, `docs\PILOT-CHECKLIST.md` or `docs\RUNBOOK.md` changes.
 
-**Why the app cannot be used on client files as it stands.** An audit of the merged
-code established (file/line evidence in the commit that added this entry):
+**Why the app could not be used on client files** (the findings that drove the decision;
+file/line evidence in the commit that added this entry):
 
 1. **No escrow, no audit log.** The protect path writes no sidecar and logs no event
    (`Batch\BatchRunner.cs`, `Engines\QpdfProtector.cs`). This is **unconditional** -
@@ -259,18 +259,21 @@ code established (file/line evidence in the commit that added this entry):
    when the flow went PDF-only, so the app's 7-Zip engine is **dead in any build from
    `main`** while still being the route for every non-PDF, non-Office file.
 
-**The decision (Brent/Ian).** Choose one, then update this entry:
+**The decision (Brent).** *Fold the good parts in, then remove.* Taken 2026-08-11:
 
-- **Remove** `app\` and `app-ci.yml` - the history is preserved on the branch and in
-  this merge. Cheapest; loses the GUI/batch/naming work.
-- **Scope** it explicitly to non-client, non-regulated use, keeping the warnings in
-  `app\README.md` and leaving items 1-8 unfixed.
-- **Invest**: bring it up to the root tool's guarantees - escrow + audit at minimum
-  (items 1-2), then 3-8. This is substantial and duplicates a product that already
-  passes its rollout gates.
+1. The batch queue with per-file status, and configurable output naming, were ported
+   into the supported tool - see entry 26 - where they drive the audited core, so
+   escrow, the audit log, PDF-only and fail-closed all apply.
+2. `app\` and `app-ci.yml` were then **deleted from `main`**. `Sign.targets`, the one
+   file the supported launcher imported from that tree, moved to `launcher\`.
+3. Office encryption, password add/change/remove and the dead 7-Zip path were NOT
+   ported - reasons in entry 26. Items 3-8 above therefore never needed fixing.
 
-Until this is decided, `app\README.md` and the root `README.md` both carry an explicit
-"not the supported tool, not for client files" warning.
+History is preserved on branch `claude/password-protected-docs-e09cmy` and in merge
+commit `878269b`. `docs\RISK.md` #13 records the one residual: a PC where someone ran
+the prototype's `--register-context-menu` still carries a per-user Explorer verb that
+does not escrow, and `uninstall.ps1` has never touched `HKCU`. Removing the source does
+not remove that key - the Windows 11 acceptance pass now includes deleting it.
 
 ---
 

@@ -21,10 +21,9 @@ namespace CuroPdfProtect.Launcher
     /// hash of the payload itself, so a new exe version lands in a new folder and
     /// no upgrade logic is needed.
     ///
-    /// Mirrors the embed -> hash-verify -> atomic temp-then-move pattern that
-    /// app\PasswordProtect.Core\Binaries\BinaryExtractor.cs already uses, but is
-    /// written against .NET Framework 4.8 (no Convert.ToHexString, no
-    /// SHA256.HashData - both are .NET Core-only).
+    /// Embed -> hash-verify -> atomic temp-then-move, written against .NET
+    /// Framework 4.8 (no Convert.ToHexString, no SHA256.HashData - both are
+    /// .NET Core-only).
     /// </summary>
     internal static class Payload
     {
