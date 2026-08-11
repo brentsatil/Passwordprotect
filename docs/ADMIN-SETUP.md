@@ -29,8 +29,9 @@ audit log and the PDF-only rule all still apply.
 
 Get it by either:
 
-- downloading the `PasswordProtect-portable-exe` artifact from a manual run of the
-  `windows-ci` workflow, or
+- downloading the `PasswordProtect-portable-exe` artifact from the latest
+  `windows-ci` run on `main` (uploaded on every push to `main`, and on manual
+  runs), or
 - building it: `dotnet publish launcher\CuroPdfProtect.Launcher -c Release -o publish`
 
 ### Getting it to the team safely
@@ -142,6 +143,38 @@ become read-only for standard users), and registers the right-click menus.
 
 To remove it: run `uninstall.ps1` as admin. The audit log is kept unless you
 add `-PurgeAuditLog`.
+
+### Optional - Windows 11 main-menu right-click (`shellext\`)
+
+On Windows 11 the Install-mode verbs live under **Show more options** - that is
+how Windows 11 treats every registry-based verb, not a fault. If you want
+**Protect with password** in the MAIN right-click menu, install the modern
+context-menu package as well:
+
+1. Get the package: download the `CuroPDFProtect-shellext` artifact from the
+   latest `windows-ci` run on `main`, or build it on a PC with VS Build Tools +
+   the Windows SDK: `shellext\Build-ShellExt.ps1 -LauncherExe <path-to-exe>`.
+2. Put the folder somewhere **permanent** (e.g.
+   `C:\Program Files\CuroPDFProtect\shellext`) - the install refuses temp
+   locations because Windows records the folder as the package's home.
+3. Run `shellext\Install-ShellExt.ps1 -PackageDir <that folder>`. With the
+   default self-signed certificate this needs an **elevated** PowerShell once
+   per PC (it trusts the certificate into the machine's Trusted People store);
+   with a CA-issued certificate no elevation is needed. Explorer restarts.
+
+Notes:
+
+- Windows 11 (build 22000+) only; the script refuses Windows 10, where the
+  normal menu already shows registry verbs.
+- The entry is **PDF-only** and greys out if the selection contains anything
+  else. It launches the same `PasswordProtect.exe` - same escrow, same audit.
+- The legacy entries (if Install mode is present) remain under *Show more
+  options*; both run the identical tool. `shellext\Uninstall-ShellExt.ps1`
+  removes this one, `uninstall.ps1` removes those.
+- A sparse package **cannot install unsigned** - that is a Windows rule. The
+  self-signed route works for an internal fleet; a signing service (e.g. Azure
+  Artifact Signing, ~USD10/month) removes the per-PC trust step. See
+  `docs\DECISIONS.md` #14.
 
 ---
 

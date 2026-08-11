@@ -12,9 +12,11 @@ Keep this by your desk. One page, everything you need day to day.
 
 **Right-click way** (if it's installed on your PC):
 1. Right-click the PDF in File Explorer.
-2. **On Windows 11 you must click "Show more options" first** - or press
-   **Shift+F10** instead of right-clicking, which opens that menu directly.
-   Windows 11 tucks add-in commands like ours under there; nothing is broken.
+2. If **Protect with password** is right there in the menu, use it (PCs with
+   the modern menu installed show it directly).
+   If it isn't: click **"Show more options"** first - or press **Shift+F10**
+   instead of right-clicking, which opens that menu directly. Windows 11
+   tucks add-in commands under there on other PCs; nothing is broken.
 3. Choose **Protect with password** (or **Protect and attach to new email**).
 4. Start typing the client's name, pick them from the list, click Protect.
 
@@ -41,8 +43,8 @@ example 3 December 1970 is 03121970."*
 - **Client says the password doesn't work** - double-check their DOB in the
   client list matches what they gave you. If still stuck, ask an admin to
   recover it (they can, from the escrow record).
-- **"Protect with password" isn't in the right-click menu** - on Windows 11 it
-  lives under **Show more options** (or press Shift+F10). If it isn't there
+- **"Protect with password" isn't in the right-click menu** - on Windows 11
+  check under **Show more options** (or press Shift+F10). If it isn't there
   either, this PC hasn't had the right-click menu installed; use drag-and-drop.
 - **A blue "Windows protected your PC" screen** the first time you run the exe -
   that's Windows not recognising an in-house tool, not a virus warning. Click

@@ -95,10 +95,17 @@ namespace CuroPdfProtect.Launcher
         {
             if (string.IsNullOrEmpty(stderr)) return false;
             string s = stderr.ToLowerInvariant();
+            // NB: deliberately no bare "unauthorizedaccess" token. PowerShell tags
+            // the policy error FullyQualifiedErrorId : UnauthorizedAccess, but a
+            // genuine file-permission UnauthorizedAccessException prints the same
+            // word, and telling staff "IT policy is blocking scripts" for an ACL
+            // problem sends the admin down the wrong path. The phrases below match
+            // the ExecutionPolicy and AppLocker/SRP block messages specifically.
             return s.Contains("running scripts is disabled")
-                || s.Contains("unauthorizedaccess")
                 || s.Contains("executionpolicy")
-                || s.Contains("cannot be loaded because running scripts");
+                || s.Contains("cannot be loaded because running scripts")
+                || s.Contains("blocked by software restriction policies")
+                || s.Contains("blocked by group policy");
         }
 
         private static string Truncate(string s, int max)

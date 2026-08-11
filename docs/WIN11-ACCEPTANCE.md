@@ -69,16 +69,33 @@ the first teammate's PC.
       PDFs themselves, **not** silence.
 - [ ] Cancel a picker: nothing is written, no error.
 
-## 4. Explorer integration (Install mode only)
+## 4. Explorer integration
+
+Which of the two blocks applies depends on what was installed on this PC.
+
+**A. Legacy verbs only (Install mode, no modern-menu package):**
 
 - [ ] Right-click a PDF. **Expect NOT to see the verb in the first menu** -
-      Windows 11 puts add-in commands under **Show more options**.
+      without the modern package, Windows 11 puts add-in commands under
+      **Show more options**.
 - [ ] Click *Show more options* (or press **Shift+F10** instead of
       right-clicking): **Protect with password** is there.
 - [ ] It works, and no console window flashes.
 - [ ] Right-click a folder -> **Protect all files in folder** works.
 - [ ] Confirm staff have been told about *Show more options*, or they will
       report the tool as "not installed". `docs\CHEATSHEET.md` covers it.
+
+**B. Modern-menu package installed (`shellext\Install-ShellExt.ps1`):**
+
+- [ ] Right-click a PDF: **Protect with password** is in the MAIN (first)
+      menu - no *Show more options* needed.
+- [ ] Select a PDF **plus** any non-PDF file and right-click: the entry is
+      greyed out (the tool is PDF-only by design).
+- [ ] Clicking it opens the same client picker as drag-and-drop, and no
+      console window flashes.
+- [ ] If Install mode is also present, the legacy entries still exist under
+      *Show more options* - both run the identical tool; that is expected,
+      not a duplicate install.
 
 ## 5. Failure paths behave
 
@@ -117,7 +134,7 @@ the first teammate's PC.
 | Exe runs (SmartScreen cleared) | | | |
 | Setup + adopted escrow key | | | |
 | Dialogs, incl. 3-file batch | | | |
-| Explorer verb found under Show more options | | | |
+| Explorer verb found (main menu, or under Show more options) | | | |
 | Fail-closed proven | | | |
 | Recovery drill from an adopting PC | | | |
 

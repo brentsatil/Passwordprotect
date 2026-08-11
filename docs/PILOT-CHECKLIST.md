@@ -15,6 +15,10 @@ relies on it.
       (`admin\Publish-Clients.ps1`, or let `setup.ps1 -ClientSource` do it).
 - [ ] Run `setup.ps1` on your own PC (Launcher or Install mode). Confirm it ends
       with `Setup complete` and a healthy check.
+- [ ] (Optional, Windows 11) Add **Protect with password** to the MAIN
+      right-click menu with `shellext\Install-ShellExt.ps1` - see the
+      "Windows 11 main menu" section of `docs\ADMIN-SETUP.md`. Without it the
+      verb sits under *Show more options*, which the cheat sheet covers.
 - [ ] Store the escrow **`.pfx` + its password** in the safe, and make the
       off-site second copy. **Do this before anyone protects a real file.**
 - [ ] **Recovery drill:** protect a throwaway test PDF, then recover its

@@ -102,9 +102,18 @@ which `settings.json` to load, in order:
 
 1. `$env:CURO_SETTINGS_PATH` - explicit override (used by `setup.ps1` while it
    configures a machine, and by tests/CI).
-2. `%ProgramData%\CuroPDFProtect\settings.json` - the machine-wide install.
-3. `<tool root>\config\settings.json` - the no-admin **Launcher** deployment,
-   written by `setup.ps1 -Mode Launcher`.
+2. `%LOCALAPPDATA%\CuroPDFProtect\settings.json` - per-user; written by
+   `setup.ps1 -Mode Launcher` and `PasswordProtect.exe --setup`. Stable across
+   exe updates: the extracted payload folder is keyed by a hash of the payload,
+   so anything stored inside it is orphaned by every new build.
+3. `%ProgramData%\CuroPDFProtect\settings.json` - the machine-wide install.
+4. `<tool root>\config\settings.json` - legacy no-admin location, still probed
+   so folder deployments configured before the per-user move keep working.
+
+Per-user deliberately beats machine-wide: a PC that once ran Install mode and
+later switched to the exe would otherwise keep loading a stale ProgramData
+config that `--setup` could never repair. `PasswordProtect.exe --diagnose`
+prints every probe location and marks which one is LIVE.
 
 `config\settings.default.json` is a **template only** - it is never loaded
 directly; its placeholder `\\server\...` paths pass syntax validation but fail

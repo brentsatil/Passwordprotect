@@ -214,6 +214,24 @@ namespace CuroPdfProtect.Launcher
         {
             // Kept ASCII and defensive: every probe is individually guarded so one
             // unavailable cmdlet cannot abort the report.
+            //
+            // The probe list mirrors src\Config.psm1 Get-CuroConfigPath exactly,
+            // including the legacy <tool root>\config\settings.json location -
+            // which for THIS exe means inside the extracted payload cache. That
+            // path is computable without extracting anything, so inject it as a
+            // single-quoted PowerShell literal (quotes doubled).
+            string legacyCfg = null;
+            try
+            {
+                legacyCfg = Path.Combine(
+                    Payload.CacheRoot(Payload.ComputeId(Payload.GetItems())),
+                    "config", "settings.json");
+            }
+            catch { /* diagnostics must never fail over this */ }
+            string legacyRow = legacyCfg == null
+                ? "    @{ n='legacy (extracted payload)'; p=$null }"
+                : "    @{ n='legacy (extracted payload)'; p='" + legacyCfg.Replace("'", "''") + "' }";
+
             return string.Join(Environment.NewLine, new[]
             {
                 "$ErrorActionPreference = 'Continue'",
@@ -242,7 +260,8 @@ namespace CuroPdfProtect.Launcher
                 "  $probe = @(",
                 "    @{ n='CURO_SETTINGS_PATH'; p=$env:CURO_SETTINGS_PATH },",
                 "    @{ n='per-user (LOCALAPPDATA)'; p=(Join-Path $env:LOCALAPPDATA 'CuroPDFProtect\\settings.json') },",
-                "    @{ n='machine-wide (ProgramData)'; p=(Join-Path $env:ProgramData 'CuroPDFProtect\\settings.json') }",
+                "    @{ n='machine-wide (ProgramData)'; p=(Join-Path $env:ProgramData 'CuroPDFProtect\\settings.json') },",
+                legacyRow,
                 "  )",
                 "  $live = $null",
                 "  foreach ($e in $probe) {",
@@ -254,6 +273,7 @@ namespace CuroPdfProtect.Launcher
                 "  }",
                 "  if (-not $live) { Write-Output '  No settings.json found - run: PasswordProtect.exe --setup' }",
                 "} catch { Write-Output ('  failed: ' + $_.Exception.Message) }",
+                "Write-Output '  (A folder deployment (PasswordProtect.cmd) probes its own <folder>\\config\\settings.json too.)'",
                 "Write-Output ''",
                 "Write-Output 'If LanguageMode is not FullLanguage, or MachinePolicy/UserPolicy is not'",
                 "Write-Output 'Undefined, or AppLocker has Script rules, then IT policy is blocking the'",

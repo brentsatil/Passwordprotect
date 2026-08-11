@@ -53,7 +53,7 @@ The launcher no longer disappears silently on failure:
 
 | Task | Where |
 |------|-------|
-| Hand the tool to a teammate | `PasswordProtect.exe` (one portable file; see `docs\ADMIN-SETUP.md`) |
+| Hand the tool to a teammate | `PasswordProtect.exe` (one portable file, built from `launcher\` — never the same-named exe from `app\`; see `docs\ADMIN-SETUP.md`) |
 | First-time setup on a machine | `setup.ps1`, or `PasswordProtect.exe --setup` |
 | Roll out to the team | `docs\PILOT-CHECKLIST.md` |
 | Check it works on a real Windows 11 PC | `docs\WIN11-ACCEPTANCE.md` (do this before handing it out) |
@@ -123,7 +123,11 @@ The launcher no longer disappears silently on failure:
   SHA-256 hashes; **all** binaries are verified at install, and a tampered or
   unpinned binary is refused.
 - Shell integration (Install mode): `HKLM\Software\Classes\*\shell\...`
-  (per-machine — new staff don't need per-user setup). If the `app\` prototype has also
+  (per-machine — new staff don't need per-user setup). On Windows 11 these verbs
+  appear under **Show more options**; the optional `shellext\` package
+  (`shellext\Install-ShellExt.ps1`) puts **Protect with password** in the MAIN
+  right-click menu (needs a signed sparse MSIX — see `docs\ADMIN-SETUP.md`).
+  If the `app\` prototype has also
   been registered on a machine it adds its own **identically labelled** per-user entry
   under `HKCU\...\SystemFileAssociations`; the two are additive and only this one
   escrows. `uninstall.ps1` removes only the `HKLM` entries.
@@ -180,6 +184,10 @@ tests\
     clients-sample.csv          sample client list used by tests
 launcher\                       portable-exe wrapper around THIS tool (net48;
   CuroPdfProtect.Launcher\      embeds src\+bin\, extracts, runs PasswordProtect.ps1)
+shellext\                       OPTIONAL Windows 11 main-menu right-click entry:
+  CuroShellExt\                 IExplorerCommand COM server (native x64), plus a
+  package\                      sparse MSIX for package identity. PDF-only verb;
+                                Build-/Install-/Uninstall-ShellExt.ps1 manage it.
 app\                            EXPLORATORY .NET 8 / WPF prototype - NOT the supported
                                 tool, no escrow, no audit log. See app\README.md.
 ```
