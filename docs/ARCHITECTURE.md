@@ -53,7 +53,10 @@ Explorer right-click on file.pdf
 │   ├── Protect-File.ps1
 │   ├── Protect-Folder.ps1
 │   ├── Protect.psm1        (core protect-one-file chain)
-│   ├── Prompt-Password.ps1
+│   ├── Naming.psm1         (output-name template, sanitiser, collisions)
+│   ├── BatchQueue.psm1     (pure row-state machine for the batch window)
+│   ├── Prompt-Password.ps1 (single-file dialog: right-click + folder batch)
+│   ├── Prompt-Batch.ps1    (batch queue window: drag-drop / portable exe)
 │   ├── Prompt-Drop.ps1     (drag-drop window for the standalone launcher)
 │   ├── Show-CuroError.ps1  (loud-failure logging + notification helper)
 │   ├── Find-Client.ps1

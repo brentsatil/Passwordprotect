@@ -54,20 +54,38 @@ the first teammate's PC.
 
 ## 3. The dialogs (the part CI cannot see)
 
-- [ ] Drag **one** PDF onto the exe. The client picker appears.
-- [ ] Type a few letters of a client's surname - the list filters as you type.
-- [ ] Pick a client, click **Protect**. `<name>_protected.pdf` appears alongside.
-- [ ] Open it in Acrobat/Edge; the client's DOB as `DDMMYYYY` opens it.
+### 3a. The batch window (drag-drop / exe)
+
+- [ ] Drag **one** PDF onto the exe. The batch window opens with a single row.
+- [ ] Drag **three** PDFs at once, at least one named so it will not match a
+      client. Three rows appear; matched rows show the client and say *Ready*,
+      the unmatched one says **Needs client**.
+- [ ] **Protect all is greyed out** while any row needs a client.
+- [ ] Click the unmatched row, type a few letters of a client's surname - the
+      list below filters as you type. Pick them: the row's Client and
+      **Will create** columns fill in and Protect all enables.
+- [ ] Click **Protect all**. Each row goes to *Working...* then **OK** - the
+      per-row status must visibly change as it goes, not all at the end.
+- [ ] The window stays open showing "Protected 3 of 3 file(s)" and Cancel
+      becomes **Close**. No separate summary dialog appears.
+- [ ] Open one output in Acrobat/Edge; the client's DOB as `DDMMYYYY` opens it.
+- [ ] Re-run with **more files than fit** and click **Cancel** mid-run: the
+      current file finishes, remaining rows say *Not run*, and the files
+      already protected are complete (check one opens with the DOB).
+- [ ] Drag a **folder** onto the exe: you get a message telling you to drop the
+      PDFs themselves, **not** silence.
+- [ ] Drag a **non-PDF** (a .docx) with a PDF: it says which file it skipped and
+      protects the PDF anyway.
+- [ ] Close the window without protecting: nothing is written, no error.
+
+### 3b. The single-file dialog (Explorer right-click)
+
+- [ ] Right-click one PDF -> **Protect with password**. The one-file client
+      picker appears (this path still uses it, and allows a typed password).
 - [ ] In business mode the manual-password box is hidden **and** a line of text
       explains that the client's DOB will be used. (If the box is simply gone
       with no explanation, that is the bug fixed in Phase C - you are on an old
       build.)
-- [ ] Drag **three** PDFs at once: three pickers appear one after another, then
-      one summary. The second and third dialogs must actually appear - this is
-      the classic PowerShell-WPF trap and has no automated coverage.
-- [ ] Drag a **folder** onto the exe: you get a message telling you to drop the
-      PDFs themselves, **not** silence.
-- [ ] Cancel a picker: nothing is written, no error.
 
 ## 4. Explorer integration
 
@@ -133,7 +151,8 @@ Which of the two blocks applies depends on what was installed on this PC.
 |---|---|---|---|
 | Exe runs (SmartScreen cleared) | | | |
 | Setup + adopted escrow key | | | |
-| Dialogs, incl. 3-file batch | | | |
+| Batch window: 3 files, assign, per-row status | | | |
+| Batch window: cancel mid-run behaves | | | |
 | Explorer verb found (main menu, or under Show more options) | | | |
 | Fail-closed proven | | | |
 | Recovery drill from an adopting PC | | | |

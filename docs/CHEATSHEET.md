@@ -7,8 +7,16 @@ Keep this by your desk. One page, everything you need day to day.
 **Drag-and-drop way** (easiest, works everywhere):
 1. Drag the PDF (or several) onto **PasswordProtect.exe**
    (or `PasswordProtect.cmd` if you were given the folder version).
-2. For each file, pick the client from the list, click Protect.
-3. Double-clicking it instead opens a window you can drop files onto.
+2. **One window lists all your files.** Most rows already show the right client,
+   matched from the file name. Any row saying **Needs client**: click it, type a
+   few letters of the client's name in the box below, pick them from the list.
+3. Click **Protect all**. It won't let you until every row has a client. Rows
+   turn OK (or FAILED, with the reason) as it works through them - it can pause
+   a few seconds per file, which is normal.
+4. Double-clicking the exe instead opens a window you can drop files onto.
+
+Need to stop partway? **Cancel** finishes the file it's on, then stops. Anything
+already protected is finished properly - nothing is left half-done.
 
 **Right-click way** (if it's installed on your PC):
 1. Right-click the PDF in File Explorer.
@@ -52,6 +60,10 @@ example 3 December 1970 is 03121970."*
   for everyone.
 - **Dropped a folder and nothing looked right** - drop the PDFs themselves. To do
   a whole folder, right-click the folder and choose *Protect all files in folder*.
+- **"Protect all" is greyed out** - at least one row still says *Needs client*.
+  Click that row and search for the client; the button enables itself.
+- **A non-PDF got skipped** - the tool is PDF-only. It tells you which files it
+  skipped and carries on with the PDFs.
 - **"Protect and attach to new email" put the file on my desktop instead** -
   you're on the new Outlook, which the tool can't attach to directly. The file is
   on your desktop, ready to drag into your email.
@@ -61,4 +73,5 @@ example 3 December 1970 is 03121970."*
 - Send the file and the password by **different** channels.
 - Don't rename `_protected` files before sending - the name is how recovery
   finds them.
-- One PDF per client - the tool asks you to confirm the client for each file.
+- One PDF per client - check the Client column before clicking Protect all; an
+  auto-matched row is a suggestion, not a guarantee.

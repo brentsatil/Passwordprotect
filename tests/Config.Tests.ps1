@@ -71,6 +71,59 @@ Describe 'Get-CuroConfig' {
     }
 }
 
+Describe 'output_name_template validation' {
+    BeforeAll {
+        function New-TemplateConfigFile {
+            param([string] $Template, [switch] $Omit)
+            $tmp = New-TemporaryFile
+            $h = @{
+                schema_version = 1
+                client_lookup_file = '\\server\shared\PDFProtect\clients.csv'
+                escrow_dir = '\\server\data\PDFProtect-Escrow'
+                dob_password_digits = 8
+                manual_password_min_length = 10
+                manual_password_required_classes = 3
+                audit_log_retention_days = 2555
+                audit_log_path = '%ProgramData%\CuroPDFProtect\audit.log'
+                qpdf_path = 'C:\Program Files\CuroPDFProtect\bin\qpdf.exe'
+                output_suffix = '_protected'
+            }
+            if (-not $Omit) { $h['output_name_template'] = $Template }
+            $h | ConvertTo-Json | Set-Content -LiteralPath $tmp.FullName -Encoding UTF8
+            return $tmp
+        }
+    }
+
+    It 'accepts a config with NO template - every settings.json deployed before the key existed stays valid' {
+        # This is the compatibility guarantee: making the key required would
+        # break every teammate's machine on the next exe update.
+        $tmp = New-TemplateConfigFile -Omit
+        $cfg = Get-CuroConfig -Path $tmp.FullName
+        $cfg.PSObject.Properties['output_name_template'] | Should -BeNullOrEmpty
+        Remove-Item $tmp
+    }
+
+    It 'accepts a valid template' {
+        $tmp = New-TemplateConfigFile -Template '{ClientRef}-{OriginalName}_protected'
+        (Get-CuroConfig -Path $tmp.FullName).output_name_template | Should -Be '{ClientRef}-{OriginalName}_protected'
+        Remove-Item $tmp
+    }
+
+    It 'rejects a template that expands to an empty file name' {
+        # "{ClientRef}" alone names every manual-password output "_.pdf", and
+        # the second file in a folder would collide with the first.
+        $tmp = New-TemplateConfigFile -Template '{ClientRef}'
+        { Get-CuroConfig -Path $tmp.FullName } | Should -Throw '*output_name_template*'
+        Remove-Item $tmp
+    }
+
+    It 'ignores an empty template string and falls back to the suffix naming' {
+        $tmp = New-TemplateConfigFile -Template ''
+        { Get-CuroConfig -Path $tmp.FullName } | Should -Not -Throw
+        Remove-Item $tmp
+    }
+}
+
 Describe 'Get-CuroConfigPath probe order' {
     AfterEach { Remove-Item Env:CURO_SETTINGS_PATH -ErrorAction SilentlyContinue }
 

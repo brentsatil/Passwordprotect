@@ -21,14 +21,27 @@ used by the Explorer entries. The launcher is PDF-only and refuses to protect
 anything until machine health checks pass for settings, qpdf, clients.csv,
 audit logging, and escrow.
 
-1. Double-click `PasswordProtect.cmd` or drag one or more PDFs onto it.
-2. For each PDF, select the client from `clients.csv`; the client's DOB is used
-   as the password in `DDMMYYYY` format.
-3. A protected copy lands in the same folder as the original as
+1. Double-click `PasswordProtect.exe` (or `PasswordProtect.cmd`), or drag one or
+   more PDFs onto it.
+2. **One window lists every file.** Each row shows the client matched from the
+   file name, the name the protected copy will get, and its status. Rows the
+   tool could not match confidently say *Needs client* — select the row and
+   search by name or file reference. **Protect all** stays disabled until every
+   row has a client, because the password *is* that client's DOB (`DDMMYYYY`).
+3. The run works through the files one at a time, updating each row to OK or
+   FAILED as it goes. Cancel finishes the file in progress and stops; anything
+   already protected keeps its escrow record. The window itself is the summary.
+4. A protected copy lands in the same folder as the original as
    `name_protected.pdf`; the original is kept unless explicitly deleted by an
-   admin workflow.
-4. Every successful output has an audit event and an escrow sidecar with wrapped
+   admin workflow. Sites that want a different output name can set
+   `output_name_template` in `settings.json` (tokens: `{OriginalName}`, `{Ext}`,
+   `{ClientRef}`, `{Date}`, `{DateCompact}`, `{Seq}`); with the key absent the
+   name is exactly `<name><output_suffix>.pdf` as before.
+5. Every successful output has an audit event and an escrow sidecar with wrapped
    user and owner passwords.
+
+The single-file Explorer right-click entry keeps its own one-file dialog, which
+also allows a manually typed password where the client isn't in the list.
 
 `qpdf.exe` is bundled in `bin\`. Requires Windows 10/11 and Windows
 PowerShell 5.1 (built into Windows).

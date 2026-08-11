@@ -61,6 +61,12 @@ function Get-OutputPath {
     <#
     .SYNOPSIS
         Destination next to the original as <stem>_protected.pdf.
+    .NOTES
+        Legacy pure helper, kept because its tests pin the historical naming
+        contract. The LIVE naming used by every protect is
+        Get-ProtectedOutputPath in src\Naming.psm1, which supports the optional
+        output_name_template; tests\Naming.Tests.ps1 pins that its default
+        output matches this function's.
     #>
     [CmdletBinding()]
     param(
@@ -108,7 +114,8 @@ function Invoke-Main {
     }
 
     # Preflight: the tool only works with its helper scripts and engine intact.
-    foreach ($req in 'Invoke-QPdf.ps1','Prompt-Drop.ps1','Prompt-Password.ps1','Config.psm1','Protect.psm1','Find-Client.ps1') {
+    foreach ($req in 'Invoke-QPdf.ps1','Prompt-Drop.ps1','Prompt-Password.ps1','Prompt-Batch.ps1',
+                     'Config.psm1','Protect.psm1','Find-Client.ps1','BatchQueue.psm1','Naming.psm1') {
         $rp = Join-Path $script:SrcDir $req
         if (-not (Test-Path -LiteralPath $rp)) {
             throw ("Missing required file:`n  $rp`n`nThe program folder looks incomplete. " +
@@ -138,25 +145,42 @@ function Invoke-Main {
     # FOLDER is the common one, since Explorer includes directories in a drop -
     # must be reported. Silently discarding them and returning 0 is exactly the
     # "I dropped it and nothing happened" failure this tool works to avoid.
+    # Non-PDFs are rejected HERE rather than per file inside the core. The batch
+    # window only enables Protect once every row has a client, and a non-PDF row
+    # can never get one - it would sit there blocking the whole run with no way
+    # for the user to clear it.
     $offered  = @($paths | Where-Object { $_ })
-    $paths    = @($offered | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf })
-    $rejected = @($offered | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) })
-    if ($paths.Count -eq 0) {
-        if ($rejected.Count -gt 0) {
-            $folders = @($rejected | Where-Object { Test-Path -LiteralPath $_ -PathType Container })
-            $msg = if ($folders.Count -eq $rejected.Count) {
-                "Folders can't be dropped here - drop the PDFs themselves." + [Environment]::NewLine + [Environment]::NewLine +
-                ($folders -join [Environment]::NewLine) + [Environment]::NewLine + [Environment]::NewLine +
-                'To protect everything in a folder, right-click the folder and choose "Protect all files in folder".'
-            } else {
-                'Nothing could be protected - these are not files:' + [Environment]::NewLine + [Environment]::NewLine +
-                ($rejected -join [Environment]::NewLine)
-            }
-            if ($env:CURO_SUPPRESS_UI -ne '1') {
-                [System.Windows.MessageBox]::Show($msg, 'Curo PDF Protector', 'OK', 'Warning') | Out-Null
-            }
-            return 3   # INPUT_NOT_FOUND
+    $isLeaf   = { param($p) Test-Path -LiteralPath $p -PathType Leaf }
+    $paths    = @($offered | Where-Object { (& $isLeaf $_) -and ([IO.Path]::GetExtension($_) -ieq '.pdf') })
+    $rejected = @($offered | Where-Object { -not ((& $isLeaf $_) -and ([IO.Path]::GetExtension($_) -ieq '.pdf')) })
+    if ($rejected.Count -gt 0) {
+        $folders = @($rejected | Where-Object { Test-Path -LiteralPath $_ -PathType Container })
+        $notPdf  = @($rejected | Where-Object { (& $isLeaf $_) })
+        $missing = @($rejected | Where-Object { -not (& $isLeaf $_) -and -not (Test-Path -LiteralPath $_ -PathType Container) })
+        $parts = @()
+        if ($folders.Count) {
+            $parts += "Folders can't be dropped here - drop the PDFs themselves:"
+            $parts += ($folders -join [Environment]::NewLine)
+            $parts += 'To protect everything in a folder, right-click the folder and choose "Protect all files in folder".'
         }
+        if ($notPdf.Count) {
+            $parts += 'Only PDF files can be protected. These were skipped:'
+            $parts += (@($notPdf | ForEach-Object { Split-Path -Leaf $_ }) -join [Environment]::NewLine)
+        }
+        if ($missing.Count) {
+            $parts += 'These could not be found:'
+            $parts += ($missing -join [Environment]::NewLine)
+        }
+        if ($paths.Count -gt 0) {
+            $parts += "Continuing with the $($paths.Count) PDF(s) that can be protected."
+        }
+        $msg = ($parts -join ([Environment]::NewLine + [Environment]::NewLine))
+        if ($env:CURO_SUPPRESS_UI -ne '1') {
+            [System.Windows.MessageBox]::Show($msg, 'Curo PDF Protector', 'OK', 'Warning') | Out-Null
+        }
+        if ($paths.Count -eq 0) { return 3 }   # INPUT_NOT_FOUND
+    }
+    if ($paths.Count -eq 0) {
         return 0   # user closed the drop window without choosing anything
     }
 
@@ -168,36 +192,21 @@ function Invoke-Main {
         return 2
     }
 
-    # 4. Protect each PDF with audit and escrow. Each row gets its own client picker
-    # so unmatched/ambiguous files cannot be processed without manual resolution.
-    $results = @()
-    foreach ($p in $paths) {
-        $prompt = & (Join-Path $script:SrcDir 'Prompt-Password.ps1') -Config $config -ClientList $clientList -FilePath $p -RequireClientDob
-        if ($prompt.Cancelled) {
-            $results += [pscustomobject]@{ Success=$false; Message="$(Split-Path -Leaf $p) - cancelled before client/DOB assignment" }
-            continue
-        }
-        try {
-            $results += Invoke-ProtectFileCore -Config $config -Path $p -PromptResult $prompt
-        } finally {
-            if ($prompt -and $prompt.SecurePassword) { $prompt.SecurePassword.Dispose() }
-            [GC]::Collect()
-        }
-    }
+    # 4. One window for the whole batch: a client per row (required - business
+    # mode never accepts a typed password here), a preview of what each row will
+    # create, and per-row status as it runs. It calls the same
+    # Invoke-ProtectFileCore per file, so escrow, audit and fail-closed are
+    # unchanged. A single dropped file goes through the same window - this path
+    # always required a client DOB, so there is nothing a separate single-file
+    # dialog would add.
+    $batch = & (Join-Path $script:SrcDir 'Prompt-Batch.ps1') -Config $config -ClientList $clientList -Paths $paths
 
-    # 5. Summary dialog.
-    $ok   = @($results | Where-Object { $_.Success })
-    $bad  = @($results | Where-Object { -not $_.Success })
-    $lines = @()
-    $lines += "Protected $($ok.Count) of $($results.Count) file(s)."
-    if ($ok.Count)  { $lines += ''; $lines += ($ok  | ForEach-Object { "  OK   $($_.Message)" }) }
-    if ($bad.Count) { $lines += ''; $lines += ($bad | ForEach-Object { "  SKIP $($_.Message)" }) }
-    $icon = if ($bad.Count -and -not $ok.Count) { 'Error' } elseif ($bad.Count) { 'Warning' } else { 'Information' }
-    [System.Windows.MessageBox]::Show(($lines -join "`n"), 'Password Protect', 'OK', $icon) | Out-Null
-
-    # The summary dialog has already told the user about any skipped files, so
-    # this is a successful *run*. Non-zero exits are reserved for genuine
-    # crashes (handled by the entry point) so the launcher only pauses then.
+    # The window is its own summary (per-row Status column plus a total line),
+    # so there is no follow-up dialog. Exit code stays 0 for any run the user
+    # saw through, including one with per-file failures: non-zero is reserved
+    # for genuine crashes and health refusals, so PasswordProtect.cmd only
+    # shows its scary diagnostic block when something really did break.
+    if ($batch -and $batch.Summary) { return $batch.Summary.ExitCode }
     return 0
 }
 

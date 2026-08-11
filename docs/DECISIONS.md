@@ -271,3 +271,65 @@ code established (file/line evidence in the commit that added this entry):
 
 Until this is decided, `app\README.md` and the root `README.md` both carry an explicit
 "not the supported tool, not for client files" warning.
+
+---
+
+# Batch queue window and naming templates (2026-08-11)
+
+## 26. Fold the prototype's batch UI into the supported tool
+
+**Decided: port, do not keep two products.** The `app\` prototype's genuinely
+useful parts - a queue listing every file with per-file status, and configurable
+output naming - are now in the supported PowerShell tool (`src\Prompt-Batch.ps1`,
+`src\BatchQueue.psm1`, `src\Naming.psm1`). This resolves entry 25: see entry 27.
+
+**What was NOT ported, and why.**
+
+- **Office encryption.** Out of scope per `RISK.md` #5, and the prototype's
+  implementation writes no `\x06DataSpaces` storage and never verifies the
+  `dataIntegrity` HMAC it writes, so a tampered file decrypts silently. It was
+  also only ever tested against itself - no known-answer vector, no
+  Office-produced fixture. Not fit to go near a client file.
+- **Add / change / remove password.** Removing protection from a client file
+  leaves its escrow sidecar describing a file that no longer needs it, with no
+  audit trail of the removal. If this is ever wanted it needs its own audit
+  event and a fresh escrow record, not a reused protect path.
+- **The prototype's 7-Zip fallback.** No `7z.exe` ships (removed when the flow
+  went PDF-only), so that path was dead in every build from `main`.
+
+**Design calls worth recording.**
+
+1. **Rows are replaced, never mutated.** A `[pscustomobject]` raises no
+   property-change notification, so assigning `$row.StatusText` updates nothing
+   on screen and reports no error at all. The window replaces the row in an
+   `ObservableCollection` instead. `tests\Xaml.Tests.ps1` pins every
+   `{Binding}` path against a real row, because a stale or misspelled path is a
+   silently blank cell, not an exception.
+2. **The protect core stays on the UI thread**, driven by two chained
+   `Dispatcher.BeginInvoke` items per file (mark row Working, then run). Render
+   and Input priorities outrank Background, so the row repaints and a Cancel
+   click lands between files. A worker runspace was rejected: the core holds a
+   machine-wide named mutex for its audit append and disposes SecureStrings, and
+   marshalling progress back would double the threading models the audited path
+   runs under. Cost accepted: the window is frozen during each file, and says so.
+3. **Cancel finishes the current file.** Killing it mid-escrow could leave a
+   protected file with no recovery record - the one thing the fail-closed design
+   exists to prevent. Completed files are never rolled back; their escrow and
+   audit rows are correct records of what happened.
+4. **No Outlook checkbox on the batch path.** The old drag-drop flow never
+   offered it, and one ticked box on a ten-file batch means ten compose windows.
+   Protect-and-email stays a single-file right-click action.
+5. **Exit code stays 0** for any run the user saw through, failures included -
+   the window showed each one per row. Non-zero remains reserved for crashes and
+   health refusals, because `PasswordProtect.cmd` pauses with a diagnostic block
+   on any non-zero exit.
+6. **`output_name_template` is optional.** `Assert-ConfigField` throws on a
+   missing key, so making it required would invalidate every `settings.json`
+   already deployed and tell the whole team "not set up" after an update. With
+   the key absent the name is byte-identical to the historical
+   `<stem><output_suffix><ext>`; `tests\Naming.Tests.ps1` and
+   `tests\ProtectCore.Tests.ps1` both pin that.
+7. **The single-file right-click dialog is unchanged.** `Prompt-Password.ps1`
+   still serves `Protect-File.ps1` and the folder batch, including the manual
+   password path that entry 1 requires. Entry 24 (`-RequireClientDob`
+   divergence between the two paths) is still open and is not resolved by this.

@@ -105,6 +105,26 @@ function Get-CuroConfig {
     Assert-ConfigField $cfg 'audit_log_retention_days'   { param($v) [int]$v -ge 30 }
     Assert-ConfigField $cfg 'qpdf_path' { param($v) -not [string]::IsNullOrWhiteSpace([string]$v) }
 
+    # OPTIONAL naming template - validated only when present, so every config
+    # deployed before the key existed stays valid. The probe deliberately
+    # passes no ClientRef: the manual-password path has none, and a template
+    # that collapses to nothing without one (e.g. "{ClientRef}") would name
+    # every manual output "_.pdf".
+    if ($cfg.PSObject.Properties['output_name_template'] -and
+        -not [string]::IsNullOrWhiteSpace([string]$cfg.output_name_template)) {
+        Import-Module (Join-Path $PSScriptRoot 'Naming.psm1') -Force -DisableNameChecking
+        $probe = $null
+        try {
+            $probe = Get-ProtectedOutputPath -Config $cfg -InputPath 'C:\probe\Sample Client SOA.pdf'
+        } catch {
+            throw "Config field 'output_name_template' ('$($cfg.output_name_template)') is invalid: $($_.Exception.Message)"
+        }
+        $leafStem = [IO.Path]::GetFileNameWithoutExtension($probe)
+        if ([string]::IsNullOrWhiteSpace($leafStem) -or $leafStem -eq '_') {
+            throw "Config field 'output_name_template' ('$($cfg.output_name_template)') expands to an empty file name. Include {OriginalName} in the template."
+        }
+    }
+
     # qpdf ships WITH the scripts, so its path must follow the code rather than
     # whatever absolute path was frozen into settings.json at setup time. Two
     # real cases break a stored path: the portable exe extracts to a folder

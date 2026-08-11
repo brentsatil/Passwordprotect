@@ -10,6 +10,7 @@ BeforeAll {
     $ErrorActionPreference = 'Continue'   # qpdf writes warnings to stderr; assertions throw explicitly
 
     Import-Module (Join-Path $PSScriptRoot '..\src\Protect.psm1') -Force -DisableNameChecking
+    Import-Module (Join-Path $PSScriptRoot '..\src\Naming.psm1')  -Force -DisableNameChecking
     . (Join-Path $PSScriptRoot '..\src\Show-CuroError.ps1')
     . (Join-Path $PSScriptRoot '..\src\Send-OutlookAttachment.ps1')
 
@@ -102,6 +103,37 @@ Describe 'Invoke-ProtectFileCore' {
         @(Get-ChildItem -Path $cfg.escrow_dir -Filter '*.escrow.json' -Recurse).Count | Should -Be 1
         $okRows = @(Get-Content -LiteralPath $cfg.audit_log_path | Where-Object { $_ -match '"outcome":"ok"' })
         $okRows.Count | Should -Be 1
+    }
+
+    It 'writes the file the naming module predicts - default and custom template' {
+        # The batch window shows Get-ProtectedOutputPath's answer in its "Will
+        # create" column BEFORE anything runs. If the core ever computed a name
+        # differently, that column would quietly lie to the user. Pin both.
+        foreach ($tpl in @($null, '{ClientRef}-{OriginalName}-locked')) {
+            $tag  = if ($tpl) { 'tpl' } else { 'default' }
+            $work = Join-Path $TestDrive "naming-$tag"
+            New-Item -ItemType Directory -Path $work -Force | Out-Null
+            $src = Join-Path $work 'Client Report.pdf'
+            Copy-Item -LiteralPath $script:cleanPdf -Destination $src
+            $cfg = New-TestConfig -Dir $work
+            if ($tpl) { $cfg | Add-Member -NotePropertyName output_name_template -NotePropertyValue $tpl }
+
+            $predicted = Get-ProtectedOutputPath -Config $cfg -InputPath $src -ClientRef 'C-TEST'
+            $r = Invoke-ProtectFileCore -Config $cfg -Path $src -PromptResult (New-TestPrompt)
+
+            $r.Success    | Should -BeTrue -Because "template '$tag' must protect successfully"
+            $r.OutputPath | Should -Be $predicted -Because "the preview column must match what is written ($tag)"
+            $predicted    | Should -Exist
+        }
+    }
+
+    It 'keeps the default output name byte-identical to the historical suffix form' {
+        $work = Join-Path $TestDrive 'naming-compat'
+        New-Item -ItemType Directory -Path $work -Force | Out-Null
+        $src = Join-Path $work 'doc.pdf'
+        Copy-Item -LiteralPath $script:cleanPdf -Destination $src
+        $r = Invoke-ProtectFileCore -Config (New-TestConfig -Dir $work) -Path $src -PromptResult (New-TestPrompt)
+        $r.OutputPath | Should -Be (Join-Path $work 'doc_protected.pdf')
     }
 
     It 'fails closed when the escrow location is unreachable and removes the output' {

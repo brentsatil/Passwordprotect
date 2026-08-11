@@ -84,8 +84,32 @@ BeforeAll {
 
     $script:GuiScripts = @(
         (Join-Path $script:SrcDir 'Prompt-Drop.ps1'),
-        (Join-Path $script:SrcDir 'Prompt-Password.ps1')
+        (Join-Path $script:SrcDir 'Prompt-Password.ps1'),
+        (Join-Path $script:SrcDir 'Prompt-Batch.ps1')
     )
+
+    # Fixtures for the batch window: a real client list through Get-ClientList
+    # so rows are built exactly as they are at run time.
+    Import-Module (Join-Path $script:SrcDir 'BatchQueue.psm1') -Force -DisableNameChecking
+    . (Join-Path $script:SrcDir 'Find-Client.ps1')
+
+    $script:BatchCfg = [pscustomobject]@{ output_suffix = '_protected' }
+
+    $fixDir = Join-Path $TestDrive 'xamlfix'
+    New-Item -ItemType Directory -Force -Path $fixDir | Out-Null
+    $csv = Join-Path $fixDir 'clients.csv'
+    @(
+        'client_name,dob,file_ref'
+        'John Smith,01/03/1970,C-1001'
+        'Aaron Brackenridge,05/06/1990,C-1003'
+    ) | Set-Content -LiteralPath $csv -Encoding UTF8
+    $script:BatchClients = Get-ClientList -Config ([pscustomobject]@{
+        client_lookup_file        = $csv
+        client_lookup_cache_path  = (Join-Path $fixDir 'cache\clients.csv')
+        client_lookup_warn_days   = 8
+        client_lookup_fail_days   = 21
+        client_lookup_cache_hours = 48
+    })
 }
 
 Describe 'WPF dialogs load and are wired correctly' {
@@ -155,7 +179,7 @@ Describe 'Business mode leaves the user something to read' {
             Should -Be 0 -Because 'a hint inside ManualPanel disappears exactly when it is needed'
     }
 
-    It 'collapsing ManualPanel still leaves the business hint visible' {
+    It 'collapsing ManualPanel still leaves the business hint visible (modal path)' {
         $panel = $script:PwWindow.FindName('ManualPanel')
         $hint  = $script:PwWindow.FindName('BusinessHint')
 
@@ -166,5 +190,108 @@ Describe 'Business mode leaves the user something to read' {
         $hint.Visibility | Should -Be 'Visible'
         $hint.Text       | Should -Not -BeNullOrEmpty
         $hint.Text       | Should -Match 'DDMMYYYY'
+    }
+}
+
+Describe 'Batch window (Prompt-Batch.ps1)' {
+
+    BeforeAll {
+        $script:BatchWindow = ConvertTo-Window -Xaml (Get-XamlFromScript -ScriptPath (Join-Path $script:SrcDir 'Prompt-Batch.ps1'))
+    }
+
+    It 'binds only to properties that New-BatchRow actually defines' {
+        # THE regression this pins: WPF resolves {Binding X} against a
+        # PSCustomObject by name at render time. A renamed or misspelled
+        # property produces a silently BLANK cell - no exception, no warning
+        # anywhere the user or CI would see. So every binding path in the
+        # GridView must exist on a real row.
+        $list = $script:BatchWindow.FindName('RowList')
+        $list | Should -Not -BeNullOrEmpty
+
+        $paths = @($list.View.Columns | ForEach-Object { $_.DisplayMemberBinding.Path.Path })
+        $paths.Count | Should -BeGreaterThan 0 -Because 'the grid must actually bind its columns'
+
+        $row = New-BatchRow -Path (Join-Path $TestDrive 'Aaron Brackenridge SOA.pdf') `
+                            -Config $script:BatchCfg -ClientList $script:BatchClients
+        $rowProps = @($row.PSObject.Properties.Name)
+        foreach ($p in $paths) {
+            $rowProps | Should -Contain $p -Because "the grid binds {Binding $p}, so a row must define it"
+        }
+    }
+
+    It 'starts with Protect disabled so the client-required gate fails closed' {
+        # Set in the XAML, not in code: the business rule (every file needs a
+        # client DOB) must hold even if the wiring below it never runs.
+        $script:BatchWindow.FindName('ProtectBtn').IsEnabled | Should -BeFalse
+    }
+
+    It 'keeps Cancel outside every panel the run disables' {
+        # During a run the assign and options panels are disabled. If Cancel
+        # lived inside either, it would be disabled exactly when it is the only
+        # control that matters - the same class of bug as the business hint
+        # nested inside the panel that hides it.
+        $cancel = $script:BatchWindow.FindName('CancelBtn')
+        $cancel | Should -Not -BeNullOrEmpty
+
+        $ancestors = @()
+        $cur = [System.Windows.LogicalTreeHelper]::GetParent($cancel)
+        while ($null -ne $cur -and $ancestors.Count -lt 50) {
+            $ancestors += $cur
+            $cur = [System.Windows.LogicalTreeHelper]::GetParent($cur)
+        }
+        $ancestors.Count | Should -BeGreaterThan 0
+        ($ancestors | Where-Object { $_ -is [System.Windows.Window] }).Count | Should -BeGreaterThan 0
+
+        foreach ($panelName in 'AssignPanel','OptionsPanel') {
+            $panel = $script:BatchWindow.FindName($panelName)
+            $panel | Should -Not -BeNullOrEmpty
+            ($ancestors | Where-Object { [object]::ReferenceEquals($_, $panel) }).Count |
+                Should -Be 0 -Because "Cancel must stay usable while $panelName is disabled"
+        }
+    }
+
+    It 'accepts a row collection as ItemsSource' {
+        $list = ConvertTo-Window -Xaml (Get-XamlFromScript -ScriptPath (Join-Path $script:SrcDir 'Prompt-Batch.ps1'))
+        $grid = $list.FindName('RowList')
+        $rows = New-Object 'System.Collections.ObjectModel.ObservableCollection[object]'
+        foreach ($p in @('a.pdf','b.pdf')) {
+            $rows.Add((New-BatchRow -Path (Join-Path $TestDrive $p) -Config $script:BatchCfg -ClientList $script:BatchClients))
+        }
+        { $grid.ItemsSource = $rows } | Should -Not -Throw
+        $grid.Items.Count | Should -Be 2
+    }
+
+    It 'runs end-to-end headlessly with the UI suppressed' {
+        # Proves far more than AST extraction can: the script really executes -
+        # XAML load, all 15 FindName lookups, row construction through
+        # BatchQueue, and every event-handler registration - and returns its
+        # documented shape. Only ShowDialog is skipped.
+        $files = @()
+        foreach ($n in 'Aaron Brackenridge SOA.pdf', 'unmatched-notes.pdf') {
+            $f = Join-Path $TestDrive $n
+            Set-Content -LiteralPath $f -Value 'x' -Encoding ascii
+            $files += $f
+        }
+
+        $saved = $env:CURO_SUPPRESS_UI
+        try {
+            $env:CURO_SUPPRESS_UI = '1'
+            $res = & (Join-Path $script:SrcDir 'Prompt-Batch.ps1') `
+                        -Config $script:BatchCfg -ClientList $script:BatchClients -Paths $files
+
+            $res           | Should -Not -BeNullOrEmpty
+            $res.Cancelled | Should -BeTrue -Because 'nothing was protected without a Protect click'
+            $res.Ran       | Should -BeFalse
+            $res.Summary   | Should -BeNullOrEmpty
+            @($res.Rows).Count | Should -Be 2
+
+            $byName = @{}
+            foreach ($r in $res.Rows) { $byName[$r.FileName] = $r }
+            $byName['Aaron Brackenridge SOA.pdf'].Status | Should -Be 'Ready'
+            $byName['unmatched-notes.pdf'].Status        | Should -Be 'NeedsClient'
+        } finally {
+            if ($null -eq $saved) { Remove-Item Env:CURO_SUPPRESS_UI -ErrorAction SilentlyContinue }
+            else { $env:CURO_SUPPRESS_UI = $saved }
+        }
     }
 }

@@ -11,6 +11,7 @@ $script:here = $PSScriptRoot
 . (Join-Path $script:here 'Write-Escrow.ps1')
 . (Join-Path $script:here 'Send-OutlookAttachment.ps1')
 Import-Module (Join-Path $script:here 'Logging.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $script:here 'Naming.psm1')  -Force -DisableNameChecking
 
 function Invoke-ProtectFileCore {
     <#
@@ -44,11 +45,10 @@ function Invoke-ProtectFileCore {
         Write-AuditEvent -Config $Config -Fields @{ op='protect'; outcome='fail'; error_code='PDF_ONLY'; src_path=$Path }
         return [pscustomobject]@{ Success=$false; ExitCode=4; ErrorCode='PDF_ONLY'; OutputPath=$null; Message='Only PDF files are supported in business mode.' }
     }
-    $targetDir  = [IO.Path]::GetDirectoryName($Path)   # -LiteralPath can't take -Parent in PS 5.1
-    $stem       = [IO.Path]::GetFileNameWithoutExtension($Path)
-    $suffix     = $Config.output_suffix
-    $outputName = "$stem$suffix$ext"
-    $outputPath = Join-Path $targetDir $outputName
+    # Output name comes from the shared naming module (optional
+    # output_name_template; default = the historical <stem><suffix> form) so
+    # the batch window's preview column and the file this writes cannot drift.
+    $outputPath = Get-ProtectedOutputPath -Config $Config -InputPath $Path -ClientRef $PromptResult.ClientFileRef
 
     $startTs = Get-Date
     $cipher  = $null

@@ -27,6 +27,7 @@ try {
     Import-Module (Join-Path $here 'Config.psm1')  -Force -DisableNameChecking
     Import-Module (Join-Path $here 'Logging.psm1') -Force -DisableNameChecking
     Import-Module (Join-Path $here 'Protect.psm1') -Force -DisableNameChecking
+    Import-Module (Join-Path $here 'Naming.psm1')  -Force -DisableNameChecking
     . (Join-Path $here 'Find-Client.ps1')
 
     try {
@@ -61,8 +62,12 @@ try {
     $prompt = & $promptScript -Config $config -ClientList $clientList -FilePath "$Path\*"
     if ($prompt.Cancelled) { exit 0 }
 
+    # Skip files that already look like this deployment's protected outputs.
+    # The wildcard comes from the effective naming template, so a custom
+    # output_name_template keeps re-protection protection too.
+    $skipPattern = Get-TemplateWildcard -Config $config
     $files = Get-ChildItem -LiteralPath $Path -File -Recurse:$Recursive |
-        Where-Object { $_.Extension -ieq '.pdf' -and $_.BaseName -notlike "*$($config.output_suffix)" }
+        Where-Object { $_.Extension -ieq '.pdf' -and $_.BaseName -notlike $skipPattern }
 
     $ok = 0; $fail = 0; $firstError = $null
 
