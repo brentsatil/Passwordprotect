@@ -22,6 +22,7 @@ param(
 foreach ($sk in @(
     'Software\Classes\*\shell\CuroProtectWithPassword',
     'Software\Classes\*\shell\CuroProtectAndEmail',
+    'Software\Classes\*\shell\CuroRemoveProtection',
     'Software\Classes\Directory\shell\CuroProtectFolder'
 )) {
     try { [Microsoft.Win32.Registry]::LocalMachine.DeleteSubKeyTree($sk, $false) } catch { }

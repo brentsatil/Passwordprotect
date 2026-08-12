@@ -151,4 +151,95 @@ function Invoke-ProtectFileCore {
     }
 }
 
-Export-ModuleMember -Function Invoke-ProtectFileCore
+function Invoke-UnprotectFileCore {
+    <#
+    .SYNOPSIS
+        Produce an unprotected copy of a protected PDF + write the audit entry.
+    .DESCRIPTION
+        The mirror of Invoke-ProtectFileCore, with two deliberate differences.
+
+        No escrow record is written: there is no new password to recover, and
+        writing one would put a recovery entry against a file that needs none.
+
+        The audit row is therefore the ONLY trace, which makes it more
+        important here than on the protect path - an unprotected copy of a
+        client document is exactly the event a compliance reviewer wants to
+        find. It is written whether the removal succeeds or fails.
+
+        The protected original is never deleted. Staff asked to remove a
+        password, not to destroy the protected copy, and the escrow record
+        that covers the original must keep pointing at a file that exists.
+    .OUTPUTS
+        [pscustomobject] Success, ExitCode, ErrorCode, OutputPath, Message
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] $Config,
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] $PromptResult    # needs SecurePassword (+ ClientFileRef)
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        Write-AuditEvent -Config $Config -Fields @{ op='unprotect'; outcome='fail'; error_code='INPUT_NOT_FOUND'; src_path=$Path }
+        return [pscustomobject]@{ Success=$false; ExitCode=3; ErrorCode='INPUT_NOT_FOUND'; OutputPath=$null; Message="File not found: $Path" }
+    }
+
+    # A site can switch this off fleet-wide; absent means allowed, so configs
+    # deployed before the feature existed keep working.
+    if ($Config.PSObject.Properties['allow_password_removal'] -and -not $Config.allow_password_removal) {
+        Write-AuditEvent -Config $Config -Fields @{ op='unprotect'; outcome='fail'; error_code='NOT_PERMITTED'; src_path=$Path }
+        return [pscustomobject]@{ Success=$false; ExitCode=2; ErrorCode='NOT_PERMITTED'; OutputPath=$null
+            Message='Removing password protection is disabled for this deployment. Ask whoever looks after the tool.' }
+    }
+
+    $ext = [IO.Path]::GetExtension($Path).ToLowerInvariant()
+    if ($ext -ne '.pdf') {
+        Write-AuditEvent -Config $Config -Fields @{ op='unprotect'; outcome='fail'; error_code='PDF_ONLY'; src_path=$Path }
+        return [pscustomobject]@{ Success=$false; ExitCode=4; ErrorCode='PDF_ONLY'; OutputPath=$null; Message='Only PDF files are supported.' }
+    }
+
+    $outputPath = Get-UnprotectedOutputPath -Config $Config -InputPath $Path
+    $startTs = Get-Date
+
+    $res = Remove-PdfProtection `
+        -QpdfPath $Config.qpdf_path `
+        -InputPath $Path `
+        -OutputPath $outputPath `
+        -Password $PromptResult.SecurePassword `
+        -LongPathPrefix:$Config.long_path_prefix `
+        -AllowOverwrite:$PromptResult.AllowOverwrite
+
+    if (-not $res.Success) {
+        Write-AuditEvent -Config $Config -Fields @{
+            op='unprotect'; outcome='fail'; error_code=$res.ErrorCode; src_path=$Path
+            client_file_ref=$PromptResult.ClientFileRef; password_source=$PromptResult.PasswordSource
+        }
+        $message = switch ($res.ErrorCode) {
+            'BAD_PASSWORD'  { "That password does not open this PDF. If the password is the client's date of birth, check it in the client list (DDMMYYYY)." }
+            'NOT_ENCRYPTED' { 'This PDF is not password protected, so there is nothing to remove.' }
+            'FILE_LOCKED'   { 'The PDF is open in another program. Close it and try again.' }
+            default         { "Could not remove the protection ($($res.ErrorCode)): $($res.Stderr)" }
+        }
+        return [pscustomobject]@{ Success=$false; ExitCode=4; ErrorCode=$res.ErrorCode; OutputPath=$null; Message=$message }
+    }
+
+    $durationMs = [int]((Get-Date) - $startTs).TotalMilliseconds
+    Write-AuditEvent -Config $Config -Fields @{
+        op='unprotect'; outcome='ok'; src_path=$Path; dst_path=$res.OutputPath
+        bytes_in=(Get-Item -LiteralPath $Path).Length
+        bytes_out=(Get-Item -LiteralPath $res.OutputPath).Length
+        duration_ms=$durationMs
+        client_file_ref=$PromptResult.ClientFileRef
+        password_source=$PromptResult.PasswordSource
+        output_sha256=(Get-FileSha256 -Path $res.OutputPath)
+    }
+
+    return [pscustomobject]@{
+        Success=$true; ExitCode=0; ErrorCode='OK'; OutputPath=$res.OutputPath
+        Message=("Unprotected copy created:" + [Environment]::NewLine + $res.OutputPath + [Environment]::NewLine + [Environment]::NewLine +
+                 "This copy has NO password and no restrictions - anyone who can open the folder can read it. " +
+                 "The protected original is untouched.")
+    }
+}
+
+Export-ModuleMember -Function Invoke-ProtectFileCore, Invoke-UnprotectFileCore

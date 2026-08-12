@@ -415,6 +415,48 @@ Want ($recovered -eq $expected) 'the recovered password equals that client DOB'
 Say 'Note: the file was protected on TEAMMATE-PC and recovered with the key generated on ADMIN-PC - the cross-machine case that a split key would break.'
 
 # --- Scene 10 --------------------------------------------------------------
+Scene 'A client sends a protected PDF back - staff strip the password'
+
+$ErrorActionPreference = 'Continue'
+$target = $rows[0]
+$client = @($clientList.Clients | Where-Object { $_.FileRef -eq $target.Client.FileRef })[0]
+$ss = New-Object System.Security.SecureString
+foreach ($ch in ([string]$client.Dob).ToCharArray()) { $ss.AppendChar($ch) }
+$ss.MakeReadOnly()
+$unprotPrompt = [pscustomobject]@{
+    SecurePassword = $ss; PasswordSource = 'dob'; ClientFileRef = $client.FileRef
+    DeleteOriginal = $false; AllowOverwrite = $false; OpenOutlook = $false; Cancelled = $false
+}
+try {
+    $unp = Invoke-UnprotectFileCore -Config $cfg -Path $target.OutputPath -PromptResult $unprotPrompt
+} finally { $ss.Dispose() }
+$ErrorActionPreference = 'Stop'
+
+Want ($unp.Success) "removed the protection from $(Split-Path -Leaf $target.OutputPath)"
+Want ($unp.OutputPath -like '*_unprotected.pdf') "named it $(Split-Path -Leaf $unp.OutputPath) - not _protected_unprotected"
+Want (Test-Path -LiteralPath $target.OutputPath) 'the protected original is still there (its escrow record still points at a real file)'
+
+$ErrorActionPreference = 'Continue'
+$plain = Join-Path (Split-Path -Parent $unp.OutputPath) 'opened-with-nothing.pdf'
+& $cfg.qpdf_path $unp.OutputPath $plain 2>&1 | Out-Null
+Want (($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq 3) -and (Test-Path -LiteralPath $plain)) 'the copy opens with NO password at all'
+
+# Wrong password must be refused, and leave nothing behind.
+$bad = New-Object System.Security.SecureString
+foreach ($ch in '31129999'.ToCharArray()) { $bad.AppendChar($ch) }
+$bad.MakeReadOnly()
+$badPrompt = [pscustomobject]@{ SecurePassword=$bad; PasswordSource='manual'; ClientFileRef=$null
+                                DeleteOriginal=$false; AllowOverwrite=$false; OpenOutlook=$false; Cancelled=$false }
+try { $badRes = Invoke-UnprotectFileCore -Config $cfg -Path $rows[1].OutputPath -PromptResult $badPrompt }
+finally { $bad.Dispose() }
+$ErrorActionPreference = 'Stop'
+Want (-not $badRes.Success -and $badRes.ErrorCode -eq 'BAD_PASSWORD') 'a wrong password is refused as BAD_PASSWORD, not a silent empty file'
+
+$unprotRows = @(Get-Content -LiteralPath $cfg.audit_log_path | Where-Object { $_ -match '"op":"unprotect"' })
+Want ($unprotRows.Count -eq 2) "both removals - the good one and the refused one - are in the audit log ($($unprotRows.Count))"
+Say 'No escrow record is written for an unprotected copy (there is no password to recover), so the audit row is the only trace - which is why it is written on failure too.'
+
+# --- Scene 11 --------------------------------------------------------------
 Scene 'The escrow share goes offline - the tool must refuse to protect'
 
 $ErrorActionPreference = 'Continue'

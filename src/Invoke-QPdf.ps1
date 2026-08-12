@@ -46,6 +46,105 @@ function ConvertFrom-SecureStringToPlain {
     finally { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
 }
 
+function Remove-PdfProtection {
+    <#
+    .SYNOPSIS
+        Produce an UNPROTECTED copy of an encrypted PDF, given its password.
+        qpdf --decrypt removes the open password and every restriction
+        (printing, copying, editing) in one pass, so this covers "remove the
+        password" and "remove the security" together.
+    .DESCRIPTION
+        Requires the password. There is deliberately no bypass: without it
+        qpdf cannot read the file, and adding a cracking path to a compliance
+        tool would be indefensible.
+
+        The password goes to qpdf through an @argfile, never the command line -
+        identical discipline to Protect-Pdf, because a password on a command
+        line is visible in the process list.
+    .OUTPUTS
+        [pscustomobject] Success, ErrorCode, OutputPath, Stderr
+        ErrorCodes: OK | NOT_ENCRYPTED | BAD_PASSWORD | FILE_LOCKED | QPDF_FAIL
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $QpdfPath,
+        [Parameter(Mandatory)] [string] $InputPath,
+        [Parameter(Mandatory)] [string] $OutputPath,
+        [Parameter(Mandatory)] [System.Security.SecureString] $Password,
+        [switch] $LongPathPrefix,
+        [switch] $AllowOverwrite
+    )
+
+    if (-not (Test-Path -LiteralPath $InputPath)) {
+        return [pscustomobject]@{ Success=$false; ErrorCode='QPDF_FAIL'; OutputPath=$null; Stderr='Input not found' }
+    }
+    if ((Test-Path -LiteralPath $OutputPath) -and -not $AllowOverwrite) {
+        return [pscustomobject]@{ Success=$false; ErrorCode='QPDF_FAIL'; OutputPath=$null; Stderr='Output exists and overwrite disabled' }
+    }
+    # Refuse a file that is not protected at all, rather than silently emitting
+    # a pointless copy the user would mistake for a successful removal.
+    if (-not (Test-PdfPreEncrypted -QpdfPath $QpdfPath -InputPath $InputPath)) {
+        return [pscustomobject]@{ Success=$false; ErrorCode='NOT_ENCRYPTED'; OutputPath=$null
+            Stderr='This PDF is not password protected, so there is nothing to remove.' }
+    }
+    try { $fs = [System.IO.File]::Open($InputPath,'Open','Read','None'); $fs.Dispose() }
+    catch {
+        return [pscustomobject]@{ Success=$false; ErrorCode='FILE_LOCKED'; OutputPath=$null
+            Stderr='Input file is in use. Close it in Acrobat or Reader and try again.' }
+    }
+
+    $inArg  = if ($LongPathPrefix) { Add-LongPathPrefix $InputPath } else { $InputPath }
+    $tmpOut = "$OutputPath.$([System.Guid]::NewGuid().ToString('N').Substring(0,8)).tmp"
+    $outArg = if ($LongPathPrefix) { Add-LongPathPrefix $tmpOut } else { $tmpOut }
+
+    $argPath = Join-Path $env:TEMP ("qpdf-dec-{0}.args" -f ([guid]::NewGuid().Guid))
+    $plain = $null
+    try {
+        $plain = ConvertFrom-SecureStringToPlain $Password
+        # One argument per line, so paths with spaces need no quoting.
+        $argText = @("--password=$plain", '--decrypt', $inArg, $outArg) -join "`n"
+        [System.IO.File]::WriteAllText($argPath, $argText, (New-Object System.Text.UTF8Encoding($false)))
+        try {
+            $acl = Get-Acl -LiteralPath $argPath
+            $acl.SetAccessRuleProtection($true, $false)
+            $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+            $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($me, 'FullControl', 'Allow')))
+            Set-Acl -LiteralPath $argPath -AclObject $acl
+        } catch { }
+
+        $pinfo = New-Object System.Diagnostics.ProcessStartInfo
+        $pinfo.FileName = $QpdfPath
+        $pinfo.Arguments = ConvertTo-NativeArgString ('@' + $argPath)
+        $pinfo.UseShellExecute = $false
+        $pinfo.RedirectStandardError = $true
+        $pinfo.RedirectStandardOutput = $true
+        $pinfo.CreateNoWindow = $true
+        $proc = [System.Diagnostics.Process]::Start($pinfo)
+        $stderr = $proc.StandardError.ReadToEnd()
+        [void]$proc.StandardOutput.ReadToEnd()
+        $proc.WaitForExit()
+        $code = $proc.ExitCode
+    } finally {
+        if (Test-Path -LiteralPath $argPath) {
+            try { [System.IO.File]::WriteAllText($argPath, (' ' * 1024)) } catch { }
+            Remove-Item -LiteralPath $argPath -Force -ErrorAction SilentlyContinue
+        }
+        Remove-Variable plain -ErrorAction SilentlyContinue
+        [GC]::Collect()
+    }
+
+    if (($code -ne 0 -and $code -ne 3) -or -not (Test-Path -LiteralPath $tmpOut)) {
+        Remove-Item -LiteralPath $tmpOut -Force -ErrorAction SilentlyContinue
+        # qpdf says "invalid password" for a wrong one - worth distinguishing,
+        # because the fix is "check the client's date of birth", not "call IT".
+        $err = if ($stderr -match '(?i)invalid password') { 'BAD_PASSWORD' } else { 'QPDF_FAIL' }
+        return [pscustomobject]@{ Success=$false; ErrorCode=$err; OutputPath=$null; Stderr=$stderr }
+    }
+    try { Move-Item -LiteralPath $tmpOut -Destination $OutputPath -Force }
+    catch { return [pscustomobject]@{ Success=$false; ErrorCode='QPDF_FAIL'; OutputPath=$null; Stderr=$_.Exception.Message } }
+    return [pscustomobject]@{ Success=$true; ErrorCode='OK'; OutputPath=$OutputPath; Stderr=$stderr }
+}
+
 function Protect-Pdf {
     [CmdletBinding()]
     param(

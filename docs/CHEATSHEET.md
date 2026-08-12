@@ -31,6 +31,23 @@ already protected is finished properly - nothing is left half-done.
 Either way you get a new file next to the original called
 `<name>_protected.pdf`. The original is left alone.
 
+## Removing a password from a PDF
+
+Sometimes you need a clean copy - filing a document, or a client has sent one
+back protected.
+
+1. Right-click the protected PDF -> **Remove password protection**.
+2. Pick the client (their date of birth is the password), or type the password
+   if it came from somewhere else.
+3. You get `<name>_unprotected.pdf` beside it. The protected original stays.
+
+**You need the password.** There is no way around that - if nobody knows it and
+the tool did not create the file, it cannot be opened. If *the tool* created it,
+an admin can always recover the password from the escrow record.
+
+The copy you get has **no password and no restrictions** - anyone who can open
+the folder can read it. Don't leave it in a shared folder, and don't email it.
+
 ## The password
 
 The password **is the client's date of birth**, written as **DDMMYYYY** with no

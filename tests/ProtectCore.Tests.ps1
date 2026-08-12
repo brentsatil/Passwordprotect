@@ -210,3 +210,92 @@ Describe 'Invoke-DesktopDropFallback' {
         }
     }
 }
+
+Describe 'Invoke-UnprotectFileCore' {
+    It 'removes the password so the copy opens with none, and audits it' {
+        $work = Join-Path $TestDrive 'unprot'
+        New-Item -ItemType Directory -Path $work -Force | Out-Null
+        $src = Join-Path $work 'doc.pdf'
+        Copy-Item -LiteralPath $script:cleanPdf -Destination $src
+        $cfg = New-TestConfig -Dir $work
+
+        # Protect first, so this is the real round trip a user performs.
+        $p = Invoke-ProtectFileCore -Config $cfg -Path $src -PromptResult (New-TestPrompt)
+        $p.Success | Should -BeTrue
+
+        $r = Invoke-UnprotectFileCore -Config $cfg -Path $p.OutputPath -PromptResult (New-TestPrompt)
+        $r.Success | Should -BeTrue
+        $out = Join-Path $work 'doc_unprotected.pdf'
+        $r.OutputPath | Should -Be $out
+        $out | Should -Exist
+
+        # The point of the whole feature: it opens with NO password.
+        & $script:qpdf $out (Join-Path $work 'plain.pdf') 2>&1 | Out-Null
+        ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq 3) | Should -BeTrue
+        (Join-Path $work 'plain.pdf') | Should -Exist
+
+        # The protected original survives - its escrow record still points at it.
+        $p.OutputPath | Should -Exist
+
+        $rows = @(Get-Content -LiteralPath $cfg.audit_log_path | Where-Object { $_ -match '"op":"unprotect"' })
+        $rows.Count | Should -Be 1
+        $rows[0] | Should -Match '"outcome":"ok"'
+    }
+
+    It 'strips the _protected suffix rather than stacking two suffixes' {
+        # "Statement_protected.pdf" -> "Statement_unprotected.pdf", NOT
+        # "Statement_protected_unprotected.pdf".
+        $cfg = New-TestConfig -Dir (Join-Path $TestDrive 'namecheck')
+        Import-Module (Join-Path $PSScriptRoot '..\src\Naming.psm1') -Force -DisableNameChecking
+        $p = Get-UnprotectedOutputPath -Config $cfg -InputPath 'C:\x\Statement_protected.pdf'
+        (Split-Path -Leaf $p) | Should -Be 'Statement_unprotected.pdf'
+    }
+
+    It 'refuses a wrong password with an actionable error, writing nothing' {
+        $work = Join-Path $TestDrive 'badpw'
+        New-Item -ItemType Directory -Path $work -Force | Out-Null
+        $src = Join-Path $work 'doc.pdf'
+        Copy-Item -LiteralPath $script:cleanPdf -Destination $src
+        $cfg = New-TestConfig -Dir $work
+        $p = Invoke-ProtectFileCore -Config $cfg -Path $src -PromptResult (New-TestPrompt)
+
+        $wrong = New-Object System.Security.SecureString
+        foreach ($ch in '31129999'.ToCharArray()) { $wrong.AppendChar($ch) }
+        $wrong.MakeReadOnly()
+        $prompt = [pscustomobject]@{ SecurePassword=$wrong; PasswordSource='manual'; ClientFileRef=$null
+                                     DeleteOriginal=$false; AllowOverwrite=$false; OpenOutlook=$false; Cancelled=$false }
+
+        $r = Invoke-UnprotectFileCore -Config $cfg -Path $p.OutputPath -PromptResult $prompt
+        $r.Success | Should -BeFalse
+        $r.ErrorCode | Should -Be 'BAD_PASSWORD'
+        $r.Message | Should -Match 'date of birth'
+        (Join-Path $work 'doc_unprotected.pdf') | Should -Not -Exist
+        (Get-Content -LiteralPath $cfg.audit_log_path -Raw) | Should -Match 'BAD_PASSWORD'
+    }
+
+    It 'refuses a PDF that is not protected in the first place' {
+        $work = Join-Path $TestDrive 'notenc'
+        New-Item -ItemType Directory -Path $work -Force | Out-Null
+        $src = Join-Path $work 'doc.pdf'
+        Copy-Item -LiteralPath $script:cleanPdf -Destination $src
+        $cfg = New-TestConfig -Dir $work
+
+        $r = Invoke-UnprotectFileCore -Config $cfg -Path $src -PromptResult (New-TestPrompt)
+        $r.Success | Should -BeFalse
+        $r.ErrorCode | Should -Be 'NOT_ENCRYPTED'
+    }
+
+    It 'can be switched off for a whole deployment' {
+        $work = Join-Path $TestDrive 'denied'
+        New-Item -ItemType Directory -Path $work -Force | Out-Null
+        $src = Join-Path $work 'doc.pdf'
+        Copy-Item -LiteralPath $script:cleanPdf -Destination $src
+        $cfg = New-TestConfig -Dir $work
+        $cfg | Add-Member -NotePropertyName allow_password_removal -NotePropertyValue $false
+
+        $r = Invoke-UnprotectFileCore -Config $cfg -Path $src -PromptResult (New-TestPrompt)
+        $r.Success | Should -BeFalse
+        $r.ErrorCode | Should -Be 'NOT_PERMITTED'
+        (Get-Content -LiteralPath $cfg.audit_log_path -Raw) | Should -Match 'NOT_PERMITTED'
+    }
+}

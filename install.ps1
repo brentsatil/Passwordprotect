@@ -187,6 +187,13 @@ Register-ContextMenu `
     -Label 'Protect and attach to new email' `
     -Command ('"{0}" -NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "{1}" -Path "%1" -OutlookMode New' -f $psExe, $protectScript)
 
+# Entry on all files: Remove password protection (needs the password; qpdf
+# --decrypt clears the open password and every restriction in one pass).
+Register-ContextMenu `
+    -SubKey 'Software\Classes\*\shell\CuroRemoveProtection' `
+    -Label 'Remove password protection' `
+    -Command ('"{0}" -NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "{1}" -Path "%1"' -f $psExe, (Join-Path $InstallDir 'src\Unprotect-File.ps1'))
+
 # Entry on folders: Protect all files in folder
 Register-ContextMenu `
     -SubKey 'Software\Classes\Directory\shell\CuroProtectFolder' `

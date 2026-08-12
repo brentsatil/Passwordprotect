@@ -6,6 +6,8 @@
   "dob_password_digits": 8,
   "output_suffix": "_protected",
   "output_name_template": "{OriginalName}_protected",
+  "unprotected_suffix": "_unprotected",
+  "allow_password_removal": true,
   "allow_overwrite": false,
   "delete_original_default": false,
   "manual_password_min_length": 10,

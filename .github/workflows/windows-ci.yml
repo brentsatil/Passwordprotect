@@ -498,6 +498,7 @@ jobs:
           $subs = @(
             'Software\Classes\*\shell\CuroProtectWithPassword\command',
             'Software\Classes\*\shell\CuroProtectAndEmail\command',
+            'Software\Classes\*\shell\CuroRemoveProtection\command',
             'Software\Classes\Directory\shell\CuroProtectFolder\command'
           )
           foreach ($sub in $subs) {
@@ -505,7 +506,7 @@ jobs:
             if (-not $cmd) { throw "missing context-menu key: $sub" }
             if ($cmd -notmatch '\-STA') { throw "context-menu command lacks -STA: $cmd" }
           }
-          Write-Host "Install OK: payload + ProgramData settings + 3 HKLM keys with -STA."
+          Write-Host "Install OK: payload + ProgramData settings + 4 HKLM keys with -STA."
 
           # ACL: settings.json must be read-only for Users; audit.log writable.
           # (Runners run elevated, so prove intent by ACE inspection.)

@@ -384,3 +384,61 @@ Pinned by `tests\FindClient.Tests.ps1` (offered but not strong),
 `tests\BatchQueue.Tests.ps1` (no auto-assign on a lone weak match), and the
 journey scene that found it. `docs\CHEATSHEET.md` now tells staff the tool only
 fills in a client when the name clearly identifies one.
+
+---
+
+# Removing protection (2026-08-12)
+
+## 28. The tool removes passwords and restrictions, with the password, audited
+
+**Requested by Brent.** Until now the tool could only ADD protection. Staff
+routinely need the reverse: filing a document, or a client returns a protected
+PDF. `qpdf --decrypt` clears the open password AND every restriction (printing,
+copying, editing) in one pass, so one action covers "remove the password" and
+"remove the security".
+
+**The password is required. There is no bypass and none will be added.** Without
+it qpdf cannot read the file. A cracking or restriction-stripping path would be
+indefensible in a tool whose purpose is protecting client documents, and it is
+not what was asked for. For a file this tool produced the password IS the client
+DOB, so the existing client picker supplies it; a typed password covers PDFs from
+providers and clients.
+
+**Decisions inside this one:**
+
+1. **No escrow record for an unprotected copy.** There is no password to
+   recover. Writing one would put a recovery entry against a file that needs
+   none, and would imply the copy is protected.
+2. **Therefore the audit row is the only trace, and is written on failure too.**
+   An unprotected copy of a client document is precisely what a compliance
+   reviewer would look for. `op=unprotect` carries the client reference, the
+   password source, and both file hashes.
+3. **The protected original is never deleted.** Staff asked to remove a
+   password, not to destroy the protected copy - and the escrow record covering
+   that original must keep pointing at a file that exists.
+4. **`_protected` is stripped before `_unprotected` is added**, so
+   `Statement_protected.pdf` yields `Statement_unprotected.pdf` rather than
+   `Statement_protected_unprotected.pdf`, which would be actively misleading on
+   a file whose point is that it is not protected.
+5. **The success dialog always shows**, even where `show_success_dialog` is off
+   for protecting. The user has just created an unencrypted copy of a client
+   document and is told plainly where it is.
+6. **No complexity check on the supplied password.** In `-Purpose Unprotect` the
+   password is whatever already opens the file; running
+   `Test-ManualComplexity` would reject the 8-digit DOB this tool itself
+   applied. The confirm box is hidden for the same reason - there is nothing to
+   mistype twice.
+7. **`allow_password_removal` (default true, absent means true)** lets a site
+   switch the whole capability off fleet-wide without redeploying. The shim
+   refuses before prompting, so nobody types a password for nothing.
+
+**Not built, deliberately:** changing a password in place. It needs a NEW escrow
+record for the new password or recovery silently returns one that no longer
+opens the file - a worse failure than not having the feature. Say the word if
+it is wanted and it will be built with that record.
+
+**Residual risk to accept or restrict.** Any staff member can now create an
+unencrypted copy of a client document. That is the point of the feature, it is
+audited, and the copy carries no more risk than the original unprotected file
+they already had - but if the firm would rather it were an admin-only act, set
+`allow_password_removal` to false and use the escrow recovery path instead.

@@ -25,7 +25,12 @@ param(
     [Parameter(Mandatory)] $ClientList,   # from Find-Client.ps1::Get-ClientList
     [Parameter(Mandatory)] [string] $FilePath,
     [switch] $OfferOutlook,
-    [switch] $RequireClientDob
+    [switch] $RequireClientDob,
+    # Protect   = choose a password to APPLY (complexity rules enforced)
+    # Unprotect = supply the password that OPENS the file (no rules to enforce -
+    #             it is whatever the file already has, commonly an 8-digit DOB
+    #             that the complexity check would wrongly reject)
+    [ValidateSet('Protect','Unprotect')] [string] $Purpose = 'Protect'
 )
 
 Add-Type -AssemblyName PresentationFramework
@@ -68,7 +73,7 @@ $xaml = @"
     <ListBox Grid.Row="3" Name="ResultsList" Margin="0,4,0,8" MinHeight="100"/>
 
     <StackPanel Grid.Row="4" Name="ManualPanel" Margin="0,0,0,8">
-      <TextBlock Text="Or enter a password manually:"/>
+      <TextBlock Name="ManualLabel" Text="Or enter a password manually:"/>
       <PasswordBox Name="ManualPwd"  Height="24" Margin="0,2"/>
       <PasswordBox Name="ManualPwd2" Height="24" Margin="0,2" ToolTip="Confirm"/>
       <TextBlock Name="ManualHint" Foreground="#888" FontSize="11"
@@ -105,6 +110,7 @@ $WarnText     = $window.FindName('WarnText')
 $SearchBox    = $window.FindName('SearchBox')
 $ResultsList  = $window.FindName('ResultsList')
 $ManualPanel  = $window.FindName('ManualPanel')
+$ManualLabel  = $window.FindName('ManualLabel')
 $ManualPwd    = $window.FindName('ManualPwd')
 $ManualPwd2   = $window.FindName('ManualPwd2')
 $ManualHint   = $window.FindName('ManualHint')
@@ -122,7 +128,21 @@ if ($ClientList.Warning) {
     $WarnText.Text = $ClientList.Warning
 }
 
-if ($RequireClientDob) {
+if ($Purpose -eq 'Unprotect') {
+    # Supplying an EXISTING password, not choosing a new one. Retitle everything
+    # so the user is not asked to "enter a password" for a file that already has
+    # one, drop the confirm box (there is nothing to mistype twice), and hide the
+    # options that only make sense when creating a protected file.
+    $window.Title            = 'Remove password protection'
+    $ManualLabel.Text        = 'Or type the password that opens this PDF:'
+    $ManualPwd2.Visibility   = 'Collapsed'
+    $ManualHint.Text         = 'For a file this tool protected, that is the client date of birth - pick the client above instead.'
+    $BusinessHint.Visibility = 'Collapsed'
+    $DeleteBox.Visibility    = 'Collapsed'
+    $OutlookBox.Visibility   = 'Collapsed'
+    $OverwriteBox.Content    = 'Overwrite existing unprotected file if present'
+    $OkBtn.Content           = 'Remove protection'
+} elseif ($RequireClientDob) {
     $ManualPanel.Visibility  = 'Collapsed'
     $BusinessHint.Visibility = 'Visible'
 } else {
@@ -248,6 +268,20 @@ $OkBtn.Add_Click({
         [System.Windows.MessageBox]::Show('Select a client or enter a password.','No password') | Out-Null
         return
     }
+    # Unprotect: the password is whatever already opens the file. There is
+    # nothing to confirm and no policy to enforce - qpdf accepts it or reports
+    # BAD_PASSWORD. Running the complexity check here would reject the 8-digit
+    # DOB this tool itself applied.
+    if ($Purpose -eq 'Unprotect') {
+        $script:result.SecurePassword = $ManualPwd.SecurePassword.Copy()
+        $script:result.SecurePassword.MakeReadOnly()
+        $script:result.PasswordSource = 'manual'
+        $script:result.ClientFileRef  = $null
+        $script:result.Cancelled = $false
+        $window.Close()
+        return
+    }
+
     if ($ManualPwd.Password -cne $ManualPwd2.Password) {
         [System.Windows.MessageBox]::Show('Password confirmation does not match.','Confirm') | Out-Null
         return

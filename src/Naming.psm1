@@ -139,6 +139,43 @@ function Get-ProtectedOutputPath {
     return (Join-Path $dir $name)
 }
 
+function Get-UnprotectedOutputPath {
+    <#
+    .SYNOPSIS
+        Destination for an unprotected copy: <stem><unprotected_suffix><ext>,
+        default suffix "_unprotected".
+    .NOTES
+        A protected input is usually already named "..._protected.pdf", which
+        would otherwise yield "..._protected_unprotected.pdf" - actively
+        confusing on a file whose whole point is that it is NOT protected. The
+        protected suffix is stripped from the stem first, so
+        "Statement_protected.pdf" becomes "Statement_unprotected.pdf".
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] $Config,
+        [Parameter(Mandatory)] [string] $InputPath
+    )
+    $dir  = [System.IO.Path]::GetDirectoryName($InputPath)
+    $stem = [System.IO.Path]::GetFileNameWithoutExtension($InputPath)
+    $ext  = [System.IO.Path]::GetExtension($InputPath)
+
+    $protectedSuffix = [string]$Config.output_suffix
+    if ($protectedSuffix -and $stem.EndsWith($protectedSuffix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        $stem = $stem.Substring(0, $stem.Length - $protectedSuffix.Length)
+    }
+
+    $suffix = if ($Config.PSObject.Properties['unprotected_suffix'] -and
+                  -not [string]::IsNullOrWhiteSpace([string]$Config.unprotected_suffix)) {
+        [string]$Config.unprotected_suffix
+    } else { '_unprotected' }
+
+    # Inner parens are load-bearing: in command-parsing mode
+    # `Join-Path $dir (X) + $ext` passes '+' and $ext as extra ARGUMENTS to
+    # Join-Path rather than concatenating, and the call fails.
+    return (Join-Path $dir ((Get-SafeFileName -Name "$stem$suffix") + $ext))
+}
+
 function Get-TemplateWildcard {
     <#
     .SYNOPSIS
@@ -163,4 +200,4 @@ function Get-TemplateWildcard {
     return ($wildcard -replace '\*{2,}', '*')
 }
 
-Export-ModuleMember -Function Expand-NameTemplate, Get-SafeFileName, Resolve-NameCollision, Get-ProtectedOutputPath, Get-TemplateWildcard
+Export-ModuleMember -Function Expand-NameTemplate, Get-SafeFileName, Resolve-NameCollision, Get-ProtectedOutputPath, Get-UnprotectedOutputPath, Get-TemplateWildcard
