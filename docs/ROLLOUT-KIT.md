@@ -44,7 +44,22 @@ Test-Path (Split-Path $ClientCsv)   # the OneDrive PDFProtect folder
 Test-Path $MasterXls                # the master client spreadsheet
 ```
 
-### 1b. Lock down the escrow share (once, before anyone protects anything)
+### 1b. Record the exe hash you are publishing
+
+The `PasswordProtect-portable-exe` artifact contains the exe **and** a
+`PasswordProtect.exe.sha256` file with that build's hash, so it travels with the
+download - no need to trust a hash typed into a document. Confirm the copy you
+put on the share matches:
+
+```powershell
+Get-FileHash '\\CURO-FS01\Apps\PasswordProtect\PasswordProtect.exe' -Algorithm SHA256
+Get-Content  '\\CURO-FS01\Apps\PasswordProtect\PasswordProtect.exe.sha256'
+```
+
+Keep both files together on the share. The hash also appears in the
+`windows-ci` log under *"PasswordProtect.exe (the file you hand to staff)"*.
+
+### 1c. Lock down the escrow share (once, before anyone protects anything)
 
 Staff need to *write* recovery records without being able to *read* each other's.
 
@@ -52,7 +67,7 @@ Staff need to *write* recovery records without being able to *read* each other's
 .\admin\Set-EscrowShareAcl.ps1 -EscrowDir $EscrowDir -RecoveryOperator $Operators
 ```
 
-### 1c. Your PC - this is what creates the escrow key
+### 1d. Your PC - this is what creates the escrow key
 
 Run this **once**, on your machine, before anybody else is set up.
 
@@ -76,7 +91,7 @@ Expect to see, near the end:
 Setup complete
 ```
 
-### 1d. Prove recovery works, before any real client file exists
+### 1e. Prove recovery works, before any real client file exists
 
 Non-negotiable. If this does not work, nothing else matters.
 
@@ -88,7 +103,7 @@ Non-negotiable. If this does not work, nothing else matters.
 
 The recovered password lands on your clipboard and must equal that client's DOB.
 
-### 1e. Every other PC - it must ADOPT the key, never create one
+### 1f. Every other PC - it must ADOPT the key, never create one
 
 Same command, **minus `-PfxPath`**:
 
@@ -116,7 +131,7 @@ Import-Module .\src\Config.psm1
 (Test-CuroHealth).Issues        # must NOT list "escrow key"
 ```
 
-### 1f. Optional - main-menu right-click on Windows 11
+### 1g. Optional - main-menu right-click on Windows 11
 
 ```powershell
 # Needs an elevated PowerShell once per PC with the default self-signed cert.
@@ -126,7 +141,7 @@ Import-Module .\src\Config.psm1
 Without this the verb still works, but sits under *Show more options*. See
 `docs\ADMIN-SETUP.md`.
 
-### 1g. The ongoing rhythm
+### 1h. The ongoing rhythm
 
 ```powershell
 # Weekly - refresh the client list from the master spreadsheet

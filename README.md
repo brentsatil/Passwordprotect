@@ -109,7 +109,7 @@ The launcher no longer disappears silently on failure:
 - Target: Windows 10 / 11, PowerShell 5.1 (ships with Windows — do NOT
   require PS 7).
 - **Portable exe (easiest to hand out): `PasswordProtect.exe`.** One self-contained
-  file (~12 MB) built from `launcher\`. It embeds this whole tool, extracts it to
+  file (~7.6 MB) built from `launcher\`. It embeds this whole tool, extracts it to
   `%LOCALAPPDATA%\CuroPDFProtect\app\<payload-id>\` on first run, and runs the
   identical scripts — same escrow, same audit log, same PDF-only rule. Nothing to
   keep together and no console window. Build it with

@@ -23,7 +23,7 @@ unreachable.
 ## Mode 0 - Portable exe (easiest to hand out)
 
 Best when you just want to give someone a file. `PasswordProtect.exe` is one
-self-contained ~12 MB file containing this entire tool. There is no folder to keep
+self-contained ~7.6 MB file containing this entire tool. There is no folder to keep
 together and no console window - and it runs the *same* scripts, so escrow, the
 audit log and the PDF-only rule all still apply.
 
