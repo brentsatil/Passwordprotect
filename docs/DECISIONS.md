@@ -482,3 +482,59 @@ keeps the Explorer menu at four entries.
 **Stated plainly to the operator, twice:** a copy already sent to the client
 keeps opening with the OLD password. Changing it here does not reach out and
 change theirs.
+
+---
+
+# Output integrity and keeping the unprotected copy (2026-08-12)
+
+## 30. The protected file is verified before it is handed over, and before escrow
+
+**Raised by Brent: "we need to preserve an unprotected copy in case the program
+corrupts/damages anything."** Investigating it found a real hole. Nothing ever
+re-opened the protected file: `qpdf`'s exit code was trusted end to end. A
+truncated or corrupt output would have been reported as protected, had its
+password escrowed, and been discovered by the client.
+
+`Test-ProtectedPdf` now runs before escrow and proves three things: the file
+opens **with its own password** (`--check`), it is structurally sound, and it
+still has every page the input had (`--show-npages`, compared both ways). On
+failure the output is deleted, `VERIFY_FAILED` is audited with the reason and
+both page counts, and the user is told the original was not touched.
+
+- **Before escrow, not after.** A file that fails verification must never get a
+  recovery record - that record would assert a password for a document nobody
+  can open.
+- **Exit code 3 (warnings) still passes.** These are third-party PDFs which
+  commonly warn; treating warnings as failure would refuse good documents.
+- **A failed page-count probe is "unknown", not a mismatch.** `--check` is the
+  hard gate; the page comparison only fires when both probes return a number, so
+  a probe quirk cannot fail a good protect. The audit row records
+  `output_verified`, and the test suite asserts the comparison actually ran
+  (`Partial` false, both counts 1) so it cannot silently degrade to a no-op.
+- `verify_output: false` exists as an escape hatch. It should stay true.
+
+## 31. An unprotected copy always survives
+
+The tool never modified the original - it writes a new `<name>_protected.pdf` -
+and deleting the original was already opt-in and shipped off. Two changes make
+that a guarantee rather than a default:
+
+- **`allow_delete_original`**, shipped **false**. The delete checkbox is hidden
+  in both the batch window and the single-file dialog, and the core refuses the
+  request and says so in the audit row even if a caller asks anyway. Absent
+  means allowed, so configs predating the key are unaffected.
+- Verification (entry 30) means a damaged output is deleted rather than handed
+  over, with the original untouched - so a corruption bug costs a retry, not a
+  document.
+
+The one place a file is still modified in place is `admin\Set-PdfPassword.ps1`
+(entry 29), which is admin-only and restores the original byte-for-byte if
+anything fails.
+
+## 32. The batch window accepts drops
+
+The queue was fixed at whatever was dropped on the exe; adding one more file
+meant closing and starting again. The list is now a drop target, refused while a
+run is in progress, and it reports what it ignored and why - duplicates,
+non-PDFs, folders - rather than silently discarding a file the user just dragged
+in.

@@ -10,6 +10,8 @@
   "allow_password_removal": true,
   "allow_overwrite": false,
   "delete_original_default": false,
+  "allow_delete_original": false,
+  "verify_output": true,
   "manual_password_min_length": 10,
   "manual_password_required_classes": 3,
   "encryption_algorithm": "AES-256",

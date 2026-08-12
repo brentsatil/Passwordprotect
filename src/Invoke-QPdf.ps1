@@ -46,6 +46,140 @@ function ConvertFrom-SecureStringToPlain {
     finally { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
 }
 
+function Get-PdfPageCount {
+    <#
+    .SYNOPSIS
+        Page count via qpdf, or $null if it cannot be determined.
+        $null means "unknown", never "zero" - callers must not treat a failed
+        probe as a mismatch.
+    #>
+    param(
+        [Parameter(Mandatory)] [string] $QpdfPath,
+        [Parameter(Mandatory)] [string] $InputPath,
+        [System.Security.SecureString] $Password
+    )
+    $argPath = Join-Path $env:TEMP ("qpdf-np-{0}.args" -f ([guid]::NewGuid().Guid))
+    $plain = $null
+    try {
+        $lines = @()
+        if ($Password) {
+            $plain = ConvertFrom-SecureStringToPlain $Password
+            $lines += "--password=$plain"
+        }
+        $lines += @('--show-npages', $InputPath)
+        [System.IO.File]::WriteAllText($argPath, ($lines -join "`n"), (New-Object System.Text.UTF8Encoding($false)))
+
+        $pinfo = New-Object System.Diagnostics.ProcessStartInfo
+        $pinfo.FileName = $QpdfPath
+        $pinfo.Arguments = ConvertTo-NativeArgString ('@' + $argPath)
+        $pinfo.UseShellExecute = $false
+        $pinfo.RedirectStandardOutput = $true
+        $pinfo.RedirectStandardError = $true
+        $pinfo.CreateNoWindow = $true
+        $proc = [System.Diagnostics.Process]::Start($pinfo)
+        $stdout = $proc.StandardOutput.ReadToEnd()
+        [void]$proc.StandardError.ReadToEnd()
+        $proc.WaitForExit()
+        if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3) { return $null }
+        $n = 0
+        if ([int]::TryParse($stdout.Trim(), [ref]$n)) { return $n }
+        return $null
+    } catch { return $null }
+    finally {
+        if (Test-Path -LiteralPath $argPath) {
+            try { [System.IO.File]::WriteAllText($argPath, (' ' * 512)) } catch { }
+            Remove-Item -LiteralPath $argPath -Force -ErrorAction SilentlyContinue
+        }
+        Remove-Variable plain -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-ProtectedPdf {
+    <#
+    .SYNOPSIS
+        Prove a freshly protected PDF is actually usable: it opens with the
+        password, it is structurally sound, and it still has every page the
+        input had.
+    .DESCRIPTION
+        Nothing else in the chain does this. qpdf's exit code says the write
+        returned success, not that the result opens - so without this a
+        truncated or corrupt output would be reported as protected, its
+        password escrowed, and the fault discovered by the client.
+
+        Page count is compared only when BOTH probes yield a number. A probe
+        that cannot answer is "unknown", and a good protect is never failed over
+        a probe quirk - but --check must pass, because that is what proves the
+        password opens the file.
+    .OUTPUTS
+        [pscustomobject] Ok, Reason, PagesIn, PagesOut, Partial
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $QpdfPath,
+        [Parameter(Mandatory)] [string] $SourcePath,
+        [Parameter(Mandatory)] [string] $ProtectedPath,
+        [Parameter(Mandatory)] [System.Security.SecureString] $Password
+    )
+
+    if (-not (Test-Path -LiteralPath $ProtectedPath)) {
+        return [pscustomobject]@{ Ok=$false; Reason='The protected file is not on disk.'; PagesIn=$null; PagesOut=$null; Partial=$false }
+    }
+    if ((Get-Item -LiteralPath $ProtectedPath).Length -eq 0) {
+        return [pscustomobject]@{ Ok=$false; Reason='The protected file is empty.'; PagesIn=$null; PagesOut=$null; Partial=$false }
+    }
+
+    # --check opens the file with the password and validates its structure.
+    $argPath = Join-Path $env:TEMP ("qpdf-chk-{0}.args" -f ([guid]::NewGuid().Guid))
+    $plain = $null
+    $code = 2
+    $stderr = ''
+    try {
+        $plain = ConvertFrom-SecureStringToPlain $Password
+        $argText = @("--password=$plain", '--check', $ProtectedPath) -join "`n"
+        [System.IO.File]::WriteAllText($argPath, $argText, (New-Object System.Text.UTF8Encoding($false)))
+        $pinfo = New-Object System.Diagnostics.ProcessStartInfo
+        $pinfo.FileName = $QpdfPath
+        $pinfo.Arguments = ConvertTo-NativeArgString ('@' + $argPath)
+        $pinfo.UseShellExecute = $false
+        $pinfo.RedirectStandardOutput = $true
+        $pinfo.RedirectStandardError = $true
+        $pinfo.CreateNoWindow = $true
+        $proc = [System.Diagnostics.Process]::Start($pinfo)
+        [void]$proc.StandardOutput.ReadToEnd()
+        $stderr = $proc.StandardError.ReadToEnd()
+        $proc.WaitForExit()
+        $code = $proc.ExitCode
+    } catch {
+        return [pscustomobject]@{ Ok=$false; Reason="Could not check the protected file: $($_.Exception.Message)"; PagesIn=$null; PagesOut=$null; Partial=$false }
+    } finally {
+        if (Test-Path -LiteralPath $argPath) {
+            try { [System.IO.File]::WriteAllText($argPath, (' ' * 512)) } catch { }
+            Remove-Item -LiteralPath $argPath -Force -ErrorAction SilentlyContinue
+        }
+        Remove-Variable plain -ErrorAction SilentlyContinue
+    }
+
+    # 3 = warnings on a file qpdf could still fully read; the inputs here are
+    # third-party PDFs that commonly warn, so treating 3 as failure would refuse
+    # perfectly good documents.
+    if ($code -ne 0 -and $code -ne 3) {
+        return [pscustomobject]@{ Ok=$false
+            Reason=("The protected file did not pass a check with its own password. " +
+                    "qpdf said: " + ($stderr -replace '\s+', ' ').Trim())
+            PagesIn=$null; PagesOut=$null; Partial=$false }
+    }
+
+    $pagesIn  = Get-PdfPageCount -QpdfPath $QpdfPath -InputPath $SourcePath
+    $pagesOut = Get-PdfPageCount -QpdfPath $QpdfPath -InputPath $ProtectedPath -Password $Password
+    if ($null -ne $pagesIn -and $null -ne $pagesOut -and $pagesIn -ne $pagesOut) {
+        return [pscustomobject]@{ Ok=$false
+            Reason="The protected file has $pagesOut page(s) but the original has $pagesIn."
+            PagesIn=$pagesIn; PagesOut=$pagesOut; Partial=$false }
+    }
+    $partial = ($null -eq $pagesIn -or $null -eq $pagesOut)
+    return [pscustomobject]@{ Ok=$true; Reason=$null; PagesIn=$pagesIn; PagesOut=$pagesOut; Partial=$partial }
+}
+
 function Set-PdfPassword {
     <#
     .SYNOPSIS

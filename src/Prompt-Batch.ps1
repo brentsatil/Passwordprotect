@@ -80,7 +80,7 @@ $xaml = @'
       <TextBlock Name="WarnText" TextWrapping="Wrap"/>
     </Border>
 
-    <ListView Grid.Row="2" Name="RowList" Margin="0,0,0,8">
+    <ListView Grid.Row="2" Name="RowList" Margin="0,0,0,8" AllowDrop="True">
       <ListView.View>
         <GridView>
           <GridViewColumn Header="Status"      Width="95"  DisplayMemberBinding="{Binding StatusText}"/>
@@ -102,6 +102,8 @@ $xaml = @'
     <StackPanel Grid.Row="4" Name="OptionsPanel" Margin="0,0,0,8">
       <CheckBox Name="OverwriteBox" Content="Overwrite existing protected files if present"/>
       <CheckBox Name="DeleteBox"    Content="Delete originals after protecting (NOT recommended)"/>
+      <TextBlock Name="DropHint" Foreground="#666" FontSize="11" Margin="0,6,0,0"
+                 Text="Tip: drag more PDFs onto the list above to add them to this batch."/>
     </StackPanel>
 
     <TextBlock Grid.Row="5" Name="ProgressText" Foreground="#555" TextWrapping="Wrap" Margin="0,0,0,8"/>
@@ -128,9 +130,16 @@ $ResultsList  = $window.FindName('ResultsList')
 $OptionsPanel = $window.FindName('OptionsPanel')
 $OverwriteBox = $window.FindName('OverwriteBox')
 $DeleteBox    = $window.FindName('DeleteBox')
+$DropHint     = $window.FindName('DropHint')
 $ProgressText = $window.FindName('ProgressText')
 $CancelBtn    = $window.FindName('CancelBtn')
 $ProtectBtn   = $window.FindName('ProtectBtn')
+
+# An unprotected copy must always survive where the site says so.
+if ($Config.PSObject.Properties['allow_delete_original'] -and -not $Config.allow_delete_original) {
+    $DeleteBox.IsChecked  = $false
+    $DeleteBox.Visibility = 'Collapsed'
+}
 
 # --- state (script scope: event handlers cannot see function locals) --------
 $script:Rows            = New-Object 'System.Collections.ObjectModel.ObservableCollection[object]'
@@ -272,6 +281,45 @@ $script:MarkStep = {
 $RowList.Add_SelectionChanged({
     if ($script:SuppressSel -or $script:IsRunning) { return }
     Update-AssignPanel
+})
+
+# Drag more PDFs straight onto the list. Without this the batch is fixed at
+# whatever was dropped on the exe, and adding one more file means starting over.
+$RowList.Add_DragOver({
+    param($s, $e)
+    $e.Effects = if (-not $script:IsRunning -and $e.Data.GetDataPresent([Windows.DataFormats]::FileDrop)) { 'Copy' } else { 'None' }
+    $e.Handled = $true
+})
+
+$RowList.Add_Drop({
+    param($s, $e)
+    $e.Handled = $true
+    if ($script:IsRunning) { return }          # never mutate the queue mid-run
+    if (-not $e.Data.GetDataPresent([Windows.DataFormats]::FileDrop)) { return }
+
+    $dropped = @($e.Data.GetData([Windows.DataFormats]::FileDrop))
+    $have    = @($script:Rows | ForEach-Object { $_.Path.ToLowerInvariant() })
+    $added = 0; $dupes = 0; $notPdf = 0; $folders = 0
+    foreach ($p in $dropped) {
+        if (Test-Path -LiteralPath $p -PathType Container) { $folders++; continue }
+        if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { $notPdf++; continue }
+        if ([IO.Path]::GetExtension($p) -ine '.pdf') { $notPdf++; continue }
+        if ($have -contains $p.ToLowerInvariant())   { $dupes++;  continue }
+        $script:Rows.Add((New-BatchRow -Path $p -Config $Config -ClientList $ClientList))
+        $added++
+    }
+    $script:Result.Rows = @($script:Rows)
+    Update-Gate
+
+    # Say what was ignored and why. Silently dropping a file the user just
+    # dragged in is the "nothing happened" failure this tool works to avoid.
+    $notes = @()
+    if ($added)      { $notes += "Added $added file(s)." }
+    if ($dupes)      { $notes += "$dupes already in the list." }
+    if ($notPdf)     { $notes += "$notPdf not a PDF - this tool is PDF-only." }
+    if ($folders)    { $notes += "$folders folder(s) ignored - drop the PDFs themselves." }
+    if (-not $added -and -not $notes) { $notes += 'Nothing to add.' }
+    $DropHint.Text = ($notes -join '  ')
 })
 
 $SearchBox.Add_TextChanged({

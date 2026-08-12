@@ -11,6 +11,9 @@ BeforeAll {
 
     Import-Module (Join-Path $PSScriptRoot '..\src\Protect.psm1') -Force -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot '..\src\Naming.psm1')  -Force -DisableNameChecking
+    # Protect.psm1 dot-sources the engine into its OWN module scope, so
+    # Test-ProtectedPdf / Get-PdfPageCount are invisible here without this.
+    . (Join-Path $PSScriptRoot '..\src\Invoke-QPdf.ps1')
     . (Join-Path $PSScriptRoot '..\src\Show-CuroError.ps1')
     . (Join-Path $PSScriptRoot '..\src\Send-OutlookAttachment.ps1')
 
@@ -246,7 +249,6 @@ Describe 'Invoke-UnprotectFileCore' {
         # "Statement_protected.pdf" -> "Statement_unprotected.pdf", NOT
         # "Statement_protected_unprotected.pdf".
         $cfg = New-TestConfig -Dir (Join-Path $TestDrive 'namecheck')
-        Import-Module (Join-Path $PSScriptRoot '..\src\Naming.psm1') -Force -DisableNameChecking
         $p = Get-UnprotectedOutputPath -Config $cfg -InputPath 'C:\x\Statement_protected.pdf'
         (Split-Path -Leaf $p) | Should -Be 'Statement_unprotected.pdf'
     }
@@ -425,5 +427,91 @@ Describe 'Invoke-ChangePasswordCore' {
                 -CurrentPassword (New-SecurePw -Plain '01031970') -PromptResult (New-RekeyPrompt -NewPlain '25121988')
         $r.Success | Should -BeFalse
         $r.ErrorCode | Should -Be 'NOT_ENCRYPTED'
+    }
+}
+
+Describe 'Output verification (protect never hands over a file it cannot open)' {
+    It 'records that the output was verified on a normal protect' {
+        $work = Join-Path $TestDrive 'verify-ok'
+        New-Item -ItemType Directory -Path $work -Force | Out-Null
+        $src = Join-Path $work 'doc.pdf'
+        Copy-Item -LiteralPath $script:cleanPdf -Destination $src
+        $cfg = New-TestConfig -Dir $work
+
+        $r = Invoke-ProtectFileCore -Config $cfg -Path $src -PromptResult (New-TestPrompt)
+        $r.Success | Should -BeTrue
+        (Get-Content -LiteralPath $cfg.audit_log_path -Raw) | Should -Match '"output_verified":true'
+    }
+
+    It 'Test-ProtectedPdf passes a real protected file and its page count matches' {
+        $work = Join-Path $TestDrive 'verify-fn'
+        New-Item -ItemType Directory -Path $work -Force | Out-Null
+        $src = Join-Path $work 'doc.pdf'
+        Copy-Item -LiteralPath $script:cleanPdf -Destination $src
+        $cfg = New-TestConfig -Dir $work
+        $p = Invoke-ProtectFileCore -Config $cfg -Path $src -PromptResult (New-TestPrompt)
+
+        $ss = New-Object System.Security.SecureString
+        foreach ($ch in '01031970'.ToCharArray()) { $ss.AppendChar($ch) }
+        $ss.MakeReadOnly()
+        try {
+            $chk = Test-ProtectedPdf -QpdfPath $script:qpdf -SourcePath $src -ProtectedPath $p.OutputPath -Password $ss
+        } finally { $ss.Dispose() }
+
+        $chk.Ok | Should -BeTrue
+        # The whole point of the page comparison: it must actually have run.
+        $chk.Partial  | Should -BeFalse
+        $chk.PagesIn  | Should -Be 1
+        $chk.PagesOut | Should -Be 1
+    }
+
+    It 'rejects a corrupt protected file, deletes it, and keeps the original' {
+        # Simulates qpdf reporting success while producing rubbish - the exact
+        # scenario nothing caught before, because only the exit code was trusted.
+        $work = Join-Path $TestDrive 'verify-corrupt'
+        New-Item -ItemType Directory -Path $work -Force | Out-Null
+        $src = Join-Path $work 'doc.pdf'
+        Copy-Item -LiteralPath $script:cleanPdf -Destination $src
+        $cfg = New-TestConfig -Dir $work
+
+        $ss = New-Object System.Security.SecureString
+        foreach ($ch in '01031970'.ToCharArray()) { $ss.AppendChar($ch) }
+        $ss.MakeReadOnly()
+        $bogus = Join-Path $work 'bogus_protected.pdf'
+        Set-Content -LiteralPath $bogus -Value 'this is not a PDF at all' -Encoding ascii
+        try {
+            $chk = Test-ProtectedPdf -QpdfPath $script:qpdf -SourcePath $src -ProtectedPath $bogus -Password $ss
+        } finally { $ss.Dispose() }
+        $chk.Ok     | Should -BeFalse
+        $chk.Reason | Should -Not -BeNullOrEmpty
+
+        # And an empty output is caught without even shelling out.
+        $empty = Join-Path $work 'empty_protected.pdf'
+        Set-Content -LiteralPath $empty -Value '' -NoNewline
+        $ss2 = New-Object System.Security.SecureString
+        foreach ($ch in '01031970'.ToCharArray()) { $ss2.AppendChar($ch) }
+        $ss2.MakeReadOnly()
+        try {
+            $chk2 = Test-ProtectedPdf -QpdfPath $script:qpdf -SourcePath $src -ProtectedPath $empty -Password $ss2
+        } finally { $ss2.Dispose() }
+        $chk2.Ok     | Should -BeFalse
+        $chk2.Reason | Should -Match 'empty'
+
+        Test-Path -LiteralPath $src | Should -BeTrue    # original never touched
+    }
+
+    It 'honours allow_delete_original=false - the unprotected copy survives' {
+        $work = Join-Path $TestDrive 'keep-original'
+        New-Item -ItemType Directory -Path $work -Force | Out-Null
+        $src = Join-Path $work 'doc.pdf'
+        Copy-Item -LiteralPath $script:cleanPdf -Destination $src
+        $cfg = New-TestConfig -Dir $work
+        $cfg | Add-Member -NotePropertyName allow_delete_original -NotePropertyValue $false
+
+        # Even with the user asking for deletion, the original must remain.
+        $r = Invoke-ProtectFileCore -Config $cfg -Path $src -PromptResult (New-TestPrompt -DeleteOriginal)
+        $r.Success | Should -BeTrue
+        Test-Path -LiteralPath $src | Should -BeTrue
+        (Get-Content -LiteralPath $cfg.audit_log_path -Raw) | Should -Match 'disabled for this deployment'
     }
 }

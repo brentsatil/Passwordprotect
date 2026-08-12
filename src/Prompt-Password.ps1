@@ -155,6 +155,13 @@ if (-not $OfferOutlook -or -not $Config.outlook_integration) {
     $OutlookBox.Visibility = 'Collapsed'
 }
 
+# Where the site forbids it, do not even offer to delete the original - an
+# unprotected copy must always survive.
+if ($Config.PSObject.Properties['allow_delete_original'] -and -not $Config.allow_delete_original) {
+    $DeleteBox.IsChecked  = $false
+    $DeleteBox.Visibility = 'Collapsed'
+}
+
 # Result holder passed back to caller.
 $script:result = @{
     SecurePassword = $null

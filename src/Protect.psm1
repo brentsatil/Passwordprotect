@@ -76,6 +76,36 @@ function Invoke-ProtectFileCore {
         }
     }
 
+    # Prove the output is actually usable BEFORE escrowing it. qpdf returning
+    # success means the write returned, not that the result opens: without this
+    # a truncated or corrupt PDF would be reported as protected, have its
+    # password escrowed, and be discovered by the client. Checking before
+    # escrow also means a bad output never gets a recovery record.
+    # The ORIGINAL is untouched throughout, so failing here loses nothing.
+    $verifySkipped = $false
+    if ($Config.PSObject.Properties['verify_output'] -and -not $Config.verify_output) {
+        $verifySkipped = $true
+    } else {
+        $check = Test-ProtectedPdf -QpdfPath $Config.qpdf_path -SourcePath $Path `
+                    -ProtectedPath $encRes.OutputPath -Password $PromptResult.SecurePassword
+        if (-not $check.Ok) {
+            if ($encRes.OwnerPassword) { $encRes.OwnerPassword.Dispose() }
+            Remove-Item -LiteralPath $encRes.OutputPath -Force -ErrorAction SilentlyContinue
+            Write-AuditEvent -Config $Config -Fields @{
+                op='protect'; outcome='fail'; error_code='VERIFY_FAILED'; src_path=$Path
+                cipher=$cipher; password_source=$PromptResult.PasswordSource
+                client_file_ref=$PromptResult.ClientFileRef; verify_reason=$check.Reason
+                pages_in=$check.PagesIn; pages_out=$check.PagesOut
+            }
+            return [pscustomobject]@{
+                Success=$false; ExitCode=4; ErrorCode='VERIFY_FAILED'; OutputPath=$null
+                Message=("The protected file failed its own integrity check, so it was deleted rather than " +
+                         "handed to you. " + $check.Reason + [Environment]::NewLine + [Environment]::NewLine +
+                         "Your original file has not been touched.")
+            }
+        }
+    }
+
     # Escrow (refuse-closed if unreachable).
     try {
         $escrow = Write-EscrowSidecar `
@@ -107,7 +137,13 @@ function Invoke-ProtectFileCore {
     # on disk.
     $deleted = $false
     $deleteError = $null
-    if ($PromptResult.DeleteOriginal) {
+    # A site can forbid deleting originals outright, so an unprotected copy
+    # always survives. Absent means allowed, for configs predating the key.
+    $mayDelete = -not ($Config.PSObject.Properties['allow_delete_original'] -and -not $Config.allow_delete_original)
+    if ($PromptResult.DeleteOriginal -and -not $mayDelete) {
+        $deleteError = 'Deleting originals is disabled for this deployment, so the original was kept.'
+    }
+    if ($PromptResult.DeleteOriginal -and $mayDelete) {
         try { Remove-Item -LiteralPath $Path -Force; $deleted = $true }
         catch { $deleteError = $_.Exception.Message }
     }
@@ -123,6 +159,7 @@ function Invoke-ProtectFileCore {
         duration_ms=$durationMs; client_file_ref=$PromptResult.ClientFileRef;
         password_source=$PromptResult.PasswordSource; deleted_original=$deleted;
         escrow_written=$true; escrow_fp=$escrow.Fingerprint; output_sha256=$escrow.OutputSha256;
+        output_verified=(-not $verifySkipped);
     }
     if ($deleteError) { $okFields['delete_error'] = $deleteError }
     Write-AuditEvent -Config $Config -Fields $okFields
