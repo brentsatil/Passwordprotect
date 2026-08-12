@@ -252,7 +252,12 @@ jobs:
           $doc = Join-Path $work 'doc.pdf'
           & $qpdf $raw $doc 2>&1 | Out-Null
           $ss = New-Object System.Security.SecureString
-          foreach ($c in '01031990'.ToCharArray()) { $ss.AppendChar($c) }   # O'Brien DOB from the fixture
+          # An arbitrary 8-digit test password, NOT read from the client fixture
+          # (this step protects and decrypts with the same literal, so it proves
+          # the crypto round-trip, not the clients.csv -> DOB link). The
+          # CSV -> client -> password chain is proven in the simulated user
+          # journey step, which reads every DOB back from the published list.
+          foreach ($c in '01031990'.ToCharArray()) { $ss.AppendChar($c) }
           $ss.MakeReadOnly()
           $prompt = [pscustomobject]@{ SecurePassword=$ss; PasswordSource='dob'; ClientFileRef='C-00502'; DeleteOriginal=$false; AllowOverwrite=$false; OpenOutlook=$false; Cancelled=$false }
           $res = Invoke-ProtectFileCore -Config $cfg -Path $doc -PromptResult $prompt
@@ -677,7 +682,12 @@ jobs:
           & $qpdf $raw $doc 2>&1 | Out-Null
 
           $ss = New-Object System.Security.SecureString
-          foreach ($c in '01031990'.ToCharArray()) { $ss.AppendChar($c) }   # O'Brien DOB from the fixture
+          # An arbitrary 8-digit test password, NOT read from the client fixture
+          # (this step protects and decrypts with the same literal, so it proves
+          # the crypto round-trip, not the clients.csv -> DOB link). The
+          # CSV -> client -> password chain is proven in the simulated user
+          # journey step, which reads every DOB back from the published list.
+          foreach ($c in '01031990'.ToCharArray()) { $ss.AppendChar($c) }
           $ss.MakeReadOnly()
           $prompt = [pscustomobject]@{ SecurePassword=$ss; PasswordSource='dob'; ClientFileRef='C-00502'; DeleteOriginal=$false; AllowOverwrite=$false; OpenOutlook=$false; Cancelled=$false }
           $res = Invoke-ProtectFileCore -Config $cfg -Path $doc -PromptResult $prompt
@@ -828,6 +838,40 @@ jobs:
           Write-Host "Modern context menu builds, packs, signs and validates."
           exit 0
 
+      - name: Simulated user journey (what staff and their admin actually do)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $psExe = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+          $script = Join-Path (Get-Location).Path 'tests\Simulate-UserJourney.ps1'
+
+          # -STA because the journey calls the real Invoke-Main, which refuses to
+          # run outside STA (the WPF dialogs require it). A child process also
+          # keeps the script's own `exit` from ending this step early.
+          $ErrorActionPreference = 'Continue'
+          & $psExe -NoProfile -ExecutionPolicy Bypass -STA -File $script *>&1 | ForEach-Object { Write-Host $_ }
+          $rc = $LASTEXITCODE
+          $ErrorActionPreference = 'Stop'
+          if ($rc -ne 0) { throw "the simulated user journey failed (exit $rc) - see the transcript above" }
+
+      - name: Publish the portable exe SHA-256 (the hash to record on the share)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = Join-Path $env:RUNNER_TEMP 'launcher-publish\PasswordProtect.exe'
+          if (-not (Test-Path -LiteralPath $exe)) { throw "no built exe at $exe" }
+          $h = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $size = (Get-Item -LiteralPath $exe).Length
+          Write-Host ''
+          Write-Host '=== PasswordProtect.exe (the file you hand to staff) ==='
+          Write-Host ("  size    : {0:N0} bytes ({1:N1} MB)" -f $size, ($size / 1MB))
+          Write-Host "  sha256  : $h"
+          Write-Host ''
+          Write-Host '  Record this alongside the copy you publish. Staff can confirm what'
+          Write-Host '  they are running with:  Get-FileHash .\PasswordProtect.exe -Algorithm SHA256'
+          Write-Host ''
+          # Ship it beside the artifact so the hash travels with the download.
+          Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'launcher-publish\PasswordProtect.exe.sha256') `
+                      -Value "$h *PasswordProtect.exe" -Encoding ascii
+
       # Deployable artifacts upload on pushes to main as well as manual runs:
       # workflow_dispatch needs actions:write, which not every operator (or
       # integration token) holds, and the artifacts ARE the deliverable an
@@ -859,5 +903,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: PasswordProtect-portable-exe
-          path: ${{ runner.temp }}/launcher-publish/PasswordProtect.exe
+          path: |
+            ${{ runner.temp }}/launcher-publish/PasswordProtect.exe
+            ${{ runner.temp }}/launcher-publish/PasswordProtect.exe.sha256
           if-no-files-found: error
