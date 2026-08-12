@@ -135,7 +135,8 @@ with password" to the Explorer right-click menu for everyone on the machine.
        -PfxPath        'E:\curo-escrow.pfx'
    ```
 2. When it prints `Setup complete`, right-click any PDF -> **Protect with
-   password** (or **Protect and attach to new email**).
+   password** (or **Protect and attach to new email**, or **Remove password
+   protection** to go the other way, which needs the password).
 
 Install mode copies the tool to `C:\Program Files\CuroPDFProtect`, hardens the
 `C:\ProgramData\CuroPDFProtect` folder (settings and the escrow certificate

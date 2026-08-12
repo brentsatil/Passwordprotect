@@ -67,6 +67,8 @@ The launcher no longer disappears silently on failure:
 | Uninstall | `uninstall.ps1` |
 | Protect a file | Right-click in Explorer → **Protect with password** |
 | Protect + email | Right-click → **Protect and attach to new email** |
+| Remove a password / restrictions | Right-click → **Remove password protection** (needs the password) |
+| Re-key a protected file | `admin\Set-PdfPassword.ps1` (admin; only when the original is gone) |
 | Update client list | `admin\Publish-Clients.ps1` (Practice Admin, weekly) |
 | Recover a forgotten password | `admin\Recover-File.ps1` (with escrow USB) |
 | Diagnose a broken install | `admin\Get-PDFProtectDiagnostics.ps1` |
@@ -79,6 +81,11 @@ The launcher no longer disappears silently on failure:
   viewer (Adobe, Edge, Preview) with the password.
 - **Non-PDF files:** refused in v1 business mode — see `docs\RISK.md` #5 for why the
   scope is deliberately PDF-only.
+- **Removing protection:** right-click -> **Remove password protection** produces an
+  unprotected copy, given the password (`qpdf --decrypt` clears the password and
+  every restriction in one pass). Audited; no escrow record, since there is no
+  password to recover. Disable fleet-wide with `allow_password_removal: false`.
+  There is deliberately no bypass - without the password qpdf cannot read the file.
 - **Client picker** with type-ahead over `clients.csv`, published from the
   master client spreadsheet. Selecting a client auto-fills their DOB as
   password in `DDMMYYYY` format (no separators).

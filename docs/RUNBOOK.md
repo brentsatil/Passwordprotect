@@ -78,6 +78,50 @@ the password that protects that `.pfx`. Brent or Ian only.*
    the key this file was escrowed under — try the other (older) key copy. Files
    escrowed under a rotated key are only recoverable with that key's `.pfx`.
 
+## 3b. "I need an unprotected copy of a protected PDF"
+
+Staff can do this themselves - it needs the password, not the escrow key.
+
+1. Right-click the protected PDF -> **Remove password protection**.
+2. Pick the client (their date of birth is the password), or type the password
+   if the file came from a provider or the client.
+3. `<name>_unprotected.pdf` appears beside it. The protected original stays.
+
+`qpdf --decrypt` removes the open password **and** every restriction (printing,
+copying, editing) in one pass, so this covers both.
+
+Notes for you rather than staff:
+
+- Every removal is audited as `op=unprotect`, on success **and** on failure. No
+  escrow record is written - there is no password to recover - so that audit row
+  is the only trace, which is why it is worth checking in the weekly summary.
+- The result has no password and no restrictions. It carries no more risk than
+  the unprotected original they already had, but it should not be left in a
+  shared folder.
+- To switch the capability off fleet-wide, set `allow_password_removal` to
+  `false` in `settings.json`. The right-click entry then refuses before
+  prompting for anything.
+- If nobody knows the password and *this tool* made the file, recover it via
+  step 3 first.
+
+## 3c. "The password on a protected file is wrong and I no longer have the original"
+
+Rare. If the unprotected original still exists, do NOT use this - correct the
+client list and protect the original again, which is simpler and leaves no stale
+copy.
+
+```powershell
+.\admin\Set-PdfPassword.ps1 -Path '<the protected pdf>' -ClientRef 'C-00101'
+```
+
+It prompts for the current password, re-keys the file **in place**, and escrows
+the new password before committing the change. If the escrow share is
+unreachable the original is restored byte-for-byte and nothing changes.
+
+**The copy the client already has keeps opening with the old password.** Send
+them the re-keyed file if they need the new one. Both escrow records are kept:
+the old one still truthfully describes what was sent.
+
 ## 4. CSV out of date
 
 Run on the Practice Administrator's machine:
