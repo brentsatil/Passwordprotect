@@ -288,6 +288,16 @@ $auto = @($rows | Where-Object { $_.AutoMatched })
 Want ($auto.Count -eq 2) "2 rows auto-matched their client from the file name (got $($auto.Count))"
 $needs = @($rows | Where-Object { $_.Status -eq 'NeedsClient' })
 Want ($needs.Count -eq 1) "1 row says `"Needs client`" (got $($needs.Count))"
+
+# 'quarterly summary.pdf' is here on purpose. The file-name matcher works on a
+# squashed substring, so "summary" contains "mary" and the file loosely matches
+# a client called Mary. That candidate must be OFFERED and never pre-filled:
+# auto-assigning it would encrypt an unrelated document with the wrong client's
+# date of birth and misattribute the audit and escrow records, on a row that
+# looked confidently Ready. This is the bug this journey caught on its first run.
+Want ($needs[0].FileName -eq 'quarterly summary.pdf') 'the row needing a client is the one with no real client name in it'
+Want ($needs[0].CandidateCount -eq 1) 'it does have one loose candidate ("summary" contains "mary")'
+Want ($null -eq $needs[0].Client) 'but that coincidence was NOT pre-filled as the client'
 Want (-not (Test-BatchReady -Rows $rows)) '"Protect all" is DISABLED while a row still needs a client'
 Want (@($rows | Where-Object { $_.PreviewName -like '*_protected.pdf' }).Count -eq 3) 'every row previews the file it will create'
 

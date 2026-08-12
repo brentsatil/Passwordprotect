@@ -75,10 +75,20 @@ function New-BatchRow {
     $client  = $null
     $status  = 'NeedsClient'
     $auto    = $false
+    # Auto-assign ONLY on a confident match. A lone WEAK match is a suggestion:
+    # the token test is a substring over the squashed file name, so
+    # 'quarterly summary.pdf' loosely matches a client called Mary ('summary'
+    # contains 'mary'). Pre-filling that would encrypt an unrelated document
+    # with the wrong client's DOB and misattribute the audit and escrow
+    # records, with the row looking confidently Ready. The second pass is only
+    # paid when there is exactly one candidate to qualify.
     if ($matched.Count -eq 1) {
-        $client = $matched[0]
-        $status = 'Ready'
-        $auto   = $true
+        $strong = @(Find-ClientForFileName -ClientList $ClientList -FilePath $Path -StrongOnly)
+        if ($strong.Count -eq 1) {
+            $client = $strong[0]
+            $status = 'Ready'
+            $auto   = $true
+        }
     }
     $ref = if ($client) { [string]$client.FileRef } else { '' }
     $preview = [System.IO.Path]::GetFileName((Get-ProtectedOutputPath -Config $Config -InputPath $Path -ClientRef $ref))

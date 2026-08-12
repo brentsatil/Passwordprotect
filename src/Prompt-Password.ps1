@@ -181,7 +181,15 @@ $initialMatches = & {
     . "$PSScriptRoot\Find-Client.ps1"
     Find-ClientForFileName -ClientList $ClientList -FilePath $FilePath
 }
-Set-ClientMatches -Matches @($initialMatches) -AutoSelectSingle
+# Only a CONFIDENT single match is selected for the user. A lone weak match is
+# still listed, but unselected, so it has to be clicked: a weak match is a
+# substring hit and can name the wrong client entirely ('quarterly summary.pdf'
+# loosely matches a Mary), which here would silently load the wrong DOB.
+$strongInitial = & {
+    . "$PSScriptRoot\Find-Client.ps1"
+    Find-ClientForFileName -ClientList $ClientList -FilePath $FilePath -StrongOnly
+}
+Set-ClientMatches -Matches @($initialMatches) -AutoSelectSingle:(@($strongInitial).Count -eq 1)
 
 $ResultsList.Add_SelectionChanged({
     if ($ResultsList.SelectedItem) {

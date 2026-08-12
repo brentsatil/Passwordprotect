@@ -179,9 +179,25 @@ function Update-AssignPanel {
     } elseif ($row.Client) {
         "Client: $($row.ClientDisplay). Search below to change it."
     } elseif ($row.CandidateCount -gt 1) {
-        "$($row.CandidateCount) clients match this file name - search below and pick the right one."
+        "$($row.CandidateCount) clients match this file name - pick the right one below."
+    } elseif ($row.CandidateCount -eq 1) {
+        # A single WEAK match. Deliberately not pre-filled: the match may be a
+        # coincidence ('quarterly summary.pdf' loosely matches a Mary), and
+        # protecting with the wrong client's DOB is worse than one extra click.
+        'One possible client below - check it is right for this file, then click it. Or search for another.'
     } else {
         'No client matched this file name - search by name or file reference below.'
+    }
+
+    # Offer the row's own candidates without the user retyping. Populating the
+    # list selects nothing, so the assignment handler stays a deliberate click.
+    if (-not $row.Client) {
+        foreach ($m in @(Find-ClientForFileName -ClientList $ClientList -FilePath $row.Path)) {
+            $item = New-Object System.Windows.Controls.ListBoxItem
+            $item.Content = $m.Display
+            $item.Tag     = $m
+            $ResultsList.Items.Add($item) | Out-Null
+        }
     }
 }
 

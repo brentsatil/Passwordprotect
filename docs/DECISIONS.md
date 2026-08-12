@@ -336,3 +336,51 @@ output naming - are now in the supported PowerShell tool (`src\Prompt-Batch.ps1`
    still serves `Protect-File.ps1` and the folder batch, including the manual
    password path that entry 1 requires. Entry 24 (`-RequireClientDob`
    divergence between the two paths) is still open and is not resolved by this.
+
+---
+
+# Client auto-matching (2026-08-12)
+
+## 27. A loose file-name match is a suggestion, never a pre-filled client
+
+**Found by `tests\Simulate-UserJourney.ps1` on its first run** (CI #68), not by
+review: the transcript showed `quarterly summary.pdf` sitting in the batch queue
+as **Ready**, with **Mary O'Brien** as its client.
+
+`Find-ClientForFileName` grades matches. *Strong* is a `file_ref`, a whole name,
+or 2+ name tokens found in the file name. *Weak* is a single name token of 4+
+characters, which exists so `Smith_report.pdf` still proposes every Smith. The
+test is a plain substring over the squashed file name, so an ordinary English
+word can contain a client's given name: `"quarterlysummary"` contains `"mary"`.
+
+Both consumers then auto-selected a **lone candidate regardless of strength** -
+`BatchQueue.psm1` marked the row `Ready` with the client pre-filled, and
+`Prompt-Password.ps1` pre-selected it in the single-file dialog. The batch case
+is the dangerous one: the row looks confident, the "Protect all" gate opens, and
+a staff member working through ten files encrypts an unrelated document with the
+wrong client's date of birth - unopenable by the intended recipient, and
+misattributed in both the audit row and the escrow record. Nothing downstream
+can catch it, because every layer faithfully records the client it was given.
+
+**Decision.** Auto-assignment requires a *strong* match.
+
+- `Find-ClientForFileName` gains `-StrongOnly`. Default output is unchanged, so
+  weak candidates are still offered.
+- `New-BatchRow` qualifies with `-StrongOnly` before assigning, and only when
+  there is exactly one candidate (so the extra pass costs nothing otherwise). A
+  lone weak match leaves the row `NeedsClient` with `CandidateCount = 1`.
+- `Prompt-Batch.ps1` pre-loads the row's candidates into the results list, so
+  confirming a suggestion is one click rather than retyping, and its hint says
+  "check it is right for this file" instead of "no client matched".
+- `Prompt-Password.ps1` selects the initial match only when it is strong.
+
+Deliberately **not** done: raising the weak-token length threshold (it would
+have to reach 6+ to exclude `mary`, which discards real surnames like `Patel`),
+or word-boundary matching (still fuzzy, and it would stop matching
+`SmithJohnSOA.pdf`). Offering rather than assuming is the honest fix - the tool
+cannot know, so it asks.
+
+Pinned by `tests\FindClient.Tests.ps1` (offered but not strong),
+`tests\BatchQueue.Tests.ps1` (no auto-assign on a lone weak match), and the
+journey scene that found it. `docs\CHEATSHEET.md` now tells staff the tool only
+fills in a client when the name clearly identifies one.

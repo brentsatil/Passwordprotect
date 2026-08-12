@@ -14,15 +14,19 @@ BeforeAll {
     # A real client list built through Get-ClientList, so auto-matching is
     # exercised against the same shape the window gets at run time.
     function New-TestClientList {
-        param([Parameter(Mandatory)][string] $Dir)
+        param(
+            [Parameter(Mandatory)][string] $Dir,
+            # Override the roster for a test that needs a specific name shape.
+            # Defaulted so existing callers are untouched.
+            [string[]] $Rows = @(
+                'John Smith,01/03/1970,C-1001'
+                'Jane Smith,02/04/1980,C-1002'
+                'Aaron Brackenridge,05/06/1990,C-1003'
+            )
+        )
         New-Item -ItemType Directory -Force -Path $Dir | Out-Null
         $csv = Join-Path $Dir 'clients.csv'
-        @(
-            'client_name,dob,file_ref'
-            'John Smith,01/03/1970,C-1001'
-            'Jane Smith,02/04/1980,C-1002'
-            'Aaron Brackenridge,05/06/1990,C-1003'
-        ) | Set-Content -LiteralPath $csv -Encoding UTF8
+        @(@('client_name,dob,file_ref') + $Rows) | Set-Content -LiteralPath $csv -Encoding UTF8
         $cacheDir = Join-Path $Dir 'cache'
         $cfg = [pscustomobject]@{
             client_lookup_file       = $csv
@@ -57,6 +61,22 @@ Describe 'New-BatchRow auto-matching' {
         $row.Status         | Should -Be 'NeedsClient'
         $row.Client         | Should -BeNullOrEmpty
         $row.CandidateCount | Should -BeGreaterThan 1
+    }
+
+    It 'does NOT auto-assign a lone WEAK match (coincidental word in the name)' {
+        # 'quarterly summary.pdf' loosely matches a client called Mary because
+        # "summary" contains "mary". Exactly one candidate comes back, so the
+        # old code marked the row Ready with that client pre-filled and the
+        # Protect-all gate opened - one skim away from encrypting an unrelated
+        # document with the wrong person's date of birth. It must stay
+        # NeedsClient, with the candidate offered for the user to confirm.
+        $maryList = New-TestClientList -Dir (Join-Path $TestDrive 'clMary') `
+                        -Rows @('Mary OBrien,01/01/1990,C-2001')
+        $row = New-BatchRow -Path 'C:\x\quarterly summary.pdf' -Config $script:cfg -ClientList $maryList
+        $row.Status         | Should -Be 'NeedsClient'
+        $row.Client         | Should -BeNullOrEmpty
+        $row.AutoMatched    | Should -BeFalse
+        $row.CandidateCount | Should -Be 1
     }
 
     It 'leaves the row NeedsClient when nothing matches' {

@@ -73,5 +73,8 @@ example 3 December 1970 is 03121970."*
 - Send the file and the password by **different** channels.
 - Don't rename `_protected` files before sending - the name is how recovery
   finds them.
-- One PDF per client - check the Client column before clicking Protect all; an
-  auto-matched row is a suggestion, not a guarantee.
+- **Check the Client column before clicking Protect all.** The tool only fills
+  in a client when the file name clearly identifies one; anything less certain
+  is left as *Needs client* with a suggestion for you to confirm. It is still
+  your check to make - a file named after the wrong client will be protected
+  with the wrong person's date of birth.

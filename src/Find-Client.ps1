@@ -187,10 +187,19 @@ function ConvertTo-ClientMatchKey {
 }
 
 function Find-ClientForFileName {
+    <#
+    .SYNOPSIS
+        Candidate clients for a file name, best-effort.
+    .PARAMETER StrongOnly
+        Return ONLY confident matches (file_ref, the whole name, or 2+ name
+        tokens). Callers that pre-fill a client without the user confirming
+        MUST use this - see the note on weak matches below.
+    #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] $ClientList,
-        [Parameter(Mandatory)] [string] $FilePath
+        [Parameter(Mandatory)] [string] $FilePath,
+        [switch] $StrongOnly
     )
 
     $fileName = [IO.Path]::GetFileNameWithoutExtension($FilePath)
@@ -202,6 +211,16 @@ function Find-ClientForFileName {
     # the surname). Weak matches are offered only when no client matched
     # strongly, so 'John_Smith_review.pdf' proposes only John while
     # 'Smith_report.pdf' still proposes every Smith.
+    #
+    # A weak match is a SUGGESTION and nothing more. The token test is a plain
+    # substring over the squashed file name, so an ordinary English word can
+    # contain a client's given name - 'quarterly summary.pdf' contains 'mary'
+    # and so loosely matches a client called Mary. A caller that silently
+    # pre-fills that client would protect an unrelated document with the wrong
+    # person's date of birth: unopenable by the intended recipient, and
+    # misattributed in the audit row and the escrow record. Callers that
+    # auto-assign must therefore pass -StrongOnly and leave weak candidates
+    # for the user to confirm.
     $strong = New-Object System.Collections.Generic.List[object]
     $weak   = New-Object System.Collections.Generic.List[object]
     foreach ($c in $ClientList.Clients) {
@@ -221,6 +240,7 @@ function Find-ClientForFileName {
             $weak.Add($c) | Out-Null
         }
     }
+    if ($StrongOnly) { return @($strong | Select-Object -First 50) }
     $result = if ($strong.Count -gt 0) { $strong } else { $weak }
     return @($result | Select-Object -First 50)
 }

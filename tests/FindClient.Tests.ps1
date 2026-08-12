@@ -100,6 +100,27 @@ Describe 'Find-ClientForFileName bulk matching' {
         @(Find-ClientForFileName -ClientList $script:bulkList -FilePath 'C:\tmp\John_Smith_review.pdf').Count | Should -Be 1
     }
 
+    It 'offers a coincidental word match but does NOT call it strong' {
+        # The regression the simulated user journey caught. The weak-match token
+        # test is a substring over the squashed file name, so "summary" contains
+        # "mary" and loosely matches a client called Mary. Being OFFERED is
+        # fine; qualifying as STRONG is not, because strong is what callers
+        # auto-assign from - and auto-assigning here protects an unrelated
+        # document with the wrong client's DOB, unopenable by the intended
+        # recipient and misattributed in the audit and escrow records.
+        @(Find-ClientForFileName -ClientList $script:bulkList -FilePath 'C:\tmp\quarterly summary.pdf').Count |
+            Should -Be 1
+        @(Find-ClientForFileName -ClientList $script:bulkList -FilePath 'C:\tmp\quarterly summary.pdf' -StrongOnly).Count |
+            Should -Be 0
+    }
+
+    It 'still reports a real name or file_ref match as strong' {
+        @(Find-ClientForFileName -ClientList $script:bulkList -FilePath 'C:\tmp\OBrien Mary review.pdf' -StrongOnly).Count |
+            Should -Be 1
+        @(Find-ClientForFileName -ClientList $script:bulkList -FilePath 'C:\tmp\SOA_C-00502_final.pdf' -StrongOnly).Count |
+            Should -Be 1
+    }
+
     It 'returns multiple candidates for ambiguous family-name filenames' {
         @(Find-ClientForFileName -ClientList $script:bulkList -FilePath 'C:\tmp\Smith_report.pdf').Count | Should -Be 2
     }
