@@ -157,7 +157,47 @@ if (-not (Test-Path -LiteralPath $settingsDir)) { New-Item -ItemType Directory -
 $env:CURO_SETTINGS_PATH = $settingsTarget
 
 if ((Test-Path -LiteralPath $settingsTarget) -and -not $Force) {
-    StepSkip "settings.json already exists ($settingsTarget). Use -Force to rewrite."
+    # Top up rather than skip. A tool update that adds config keys used to leave
+    # existing machines silently on the old shape: re-running setup skipped the
+    # file entirely, and -Force rewrote it from the template, discarding any
+    # hand-edited values. Neither is a safe update, so add only the keys that
+    # are MISSING and leave every existing value exactly as it is.
+    $existingRaw = Get-Content -LiteralPath $settingsTarget -Raw -Encoding UTF8
+    $existing = $null
+    try { $existing = $existingRaw | ConvertFrom-Json } catch {
+        StepFail "settings.json at $settingsTarget is not valid JSON: $($_.Exception.Message)"
+        exit 1
+    }
+    $template = Get-Content -LiteralPath (Join-Path $root 'config\settings.default.json') -Raw | ConvertFrom-Json
+
+    $merged = [ordered]@{}
+    foreach ($p in $existing.PSObject.Properties) { $merged[$p.Name] = $p.Value }
+    $addedKeys = @()
+    foreach ($p in $template.PSObject.Properties) {
+        if (-not $merged.Contains($p.Name)) {
+            # Paths in the template are placeholders (\\server\...), so a newly
+            # introduced PATH key must not be copied in blind - it would fail
+            # the health check with a share nobody owns. Only non-path defaults
+            # are safe to inherit; anything path-shaped is reported instead.
+            if ($p.Value -is [string] -and $p.Value -match '^(\\\\|[A-Za-z]:\\|%)') {
+                StepSkip "New setting '$($p.Name)' needs a real value - add it to $settingsTarget by hand."
+                continue
+            }
+            $merged[$p.Name] = $p.Value
+            $addedKeys += $p.Name
+        }
+    }
+
+    if ($addedKeys.Count -gt 0) {
+        $json = [string](ConvertTo-Json -InputObject $merged -Depth 6)
+        $tmp = "$settingsTarget.tmp"
+        [System.IO.File]::WriteAllText($tmp, $json, [System.Text.UTF8Encoding]::new($false))
+        Move-Item -LiteralPath $tmp -Destination $settingsTarget -Force
+        StepOK ("settings.json updated with $($addedKeys.Count) new setting(s): " + ($addedKeys -join ', '))
+        Say  '       Existing values were left untouched.'
+    } else {
+        StepSkip "settings.json is already up to date ($settingsTarget)."
+    }
 } else {
     $template = Get-Content -LiteralPath (Join-Path $root 'config\settings.default.json') -Raw | ConvertFrom-Json
     # Convert the parsed object to an ordered hashtable we can edit + re-serialise.

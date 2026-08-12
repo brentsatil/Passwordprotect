@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "company_name": "Curo Financial Services",
-  "tool_version_pin": "1.0.0",
+  "tool_version_pin": "1.1.0",
   "default_password_format": "DDMMYYYY",
   "dob_password_digits": 8,
   "output_suffix": "_protected",

@@ -2,7 +2,15 @@
 # Heartbeat + structured error helpers. NEVER log passwords, SecureStrings,
 # or any derived password material.
 
-$script:ToolVersion = '1.0.0'
+# Read from the VERSION file rather than hard-coding, so a release bump cannot
+# leave audit rows claiming an older build than the escrow sidecars, which read
+# the same file (src\Write-Escrow.ps1). The fallback keeps logging working if
+# VERSION is somehow missing - a version label is never worth losing an audit
+# event over.
+$script:ToolVersion = try {
+    $v = (Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\VERSION') -ErrorAction Stop | Select-Object -First 1)
+    if ([string]::IsNullOrWhiteSpace($v)) { 'unknown' } else { $v.Trim() }
+} catch { 'unknown' }
 
 function Write-Heartbeat {
     [CmdletBinding()]

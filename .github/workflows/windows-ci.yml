@@ -278,6 +278,48 @@ jobs:
           try { $recovered = Unprotect-EscrowEntry -Entry $entry -Certificate $recCert -Which user } finally { $recCert.Dispose() }
           if ($recovered -ne '01031990') { throw "recovered password mismatch: got '$recovered', expected the DOB" }
 
+          # Config UPDATE path: a tool release that adds settings keys must reach
+          # machines that are already set up. Re-running setup used to skip the
+          # file entirely (keys never arrive, silently) while -Force rewrote it
+          # from the template (hand-edited values lost). Prove the top-up adds
+          # what is missing and touches nothing else.
+          $cfgObj = Get-Content -LiteralPath $userSettings -Raw | ConvertFrom-Json
+          $kept = [ordered]@{}
+          foreach ($p in $cfgObj.PSObject.Properties) {
+            if ($p.Name -in 'verify_output','allow_delete_original') { continue }   # simulate an older config
+            $kept[$p.Name] = $p.Value
+          }
+          $kept['audit_log_retention_days'] = 3000        # a deliberate local edit that must survive
+          [System.IO.File]::WriteAllText($userSettings, [string](ConvertTo-Json -InputObject $kept -Depth 6), [System.Text.UTF8Encoding]::new($false))
+
+          $topUpCmd = "`$env:ProgramData='$pd'; `$env:LOCALAPPDATA='$la'; " +
+                      "& '$app\setup.ps1' -Mode Launcher -NonInteractive " +
+                      "-ClientListPath '$clientOut' -EscrowDir '$escrowDir' -SkipClientPublish; exit `$LASTEXITCODE"
+          $ErrorActionPreference = 'Continue'
+          $topUpOut = & $psExe -NoProfile -ExecutionPolicy Bypass -Command $topUpCmd 2>&1 | Out-String
+          $topUpRc = $LASTEXITCODE
+          $ErrorActionPreference = 'Stop'
+          Write-Host "----- setup re-run (config top-up) -----"; Write-Host $topUpOut
+          if ($topUpRc -ne 0) { throw "setup re-run exited $topUpRc" }
+          if ($topUpOut -notmatch 'new setting') { throw "setup did not report topping up the missing settings:`n$topUpOut" }
+
+          $after = Get-Content -LiteralPath $userSettings -Raw | ConvertFrom-Json
+          if ($null -eq $after.verify_output)          { throw 'verify_output was not restored by the top-up' }
+          if ($null -eq $after.allow_delete_original)  { throw 'allow_delete_original was not restored by the top-up' }
+          if ([int]$after.audit_log_retention_days -ne 3000) {
+            throw "the top-up clobbered a hand-edited value (audit_log_retention_days = $($after.audit_log_retention_days), expected 3000)"
+          }
+          if ($after.client_lookup_file -ne $clientOut) { throw 'the top-up changed the client list path' }
+          Write-Host "Config top-up OK: missing keys added, local edits preserved."
+
+          # The version stamped into audit rows and escrow sidecars must come
+          # from one place - it used to be hard-coded in Logging.psm1 as well.
+          $ver = (Get-Content -LiteralPath (Join-Path $app 'VERSION') | Select-Object -First 1).Trim()
+          $auditVer = (Get-Content -LiteralPath $cfg.audit_log_path | Select-Object -First 1 | ConvertFrom-Json).v
+          if ($auditVer -ne $ver) { throw "audit rows say v$auditVer but VERSION says $ver" }
+          if ($entry.tool_version -ne $ver) { throw "escrow sidecar says $($entry.tool_version) but VERSION says $ver" }
+          Write-Host "Version stamp consistent across VERSION, audit rows and escrow sidecars ($ver)."
+
           Write-Host "Launcher E2E OK: setup -> healthy -> protect -> decrypt -> SHA-256 escrow -> recover with the PFX."
           exit 0
 
