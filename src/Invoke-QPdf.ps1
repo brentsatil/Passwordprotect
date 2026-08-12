@@ -46,6 +46,108 @@ function ConvertFrom-SecureStringToPlain {
     finally { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
 }
 
+function Set-PdfPassword {
+    <#
+    .SYNOPSIS
+        Re-protect an already-protected PDF under a NEW password, given the
+        current one. Writes to -OutputPath (which may equal -InputPath only via
+        the caller's temp-then-move, never directly).
+    .DESCRIPTION
+        ONE qpdf pass: --password applies to the INPUT, --encrypt to the OUTPUT,
+        so the plaintext never touches disk. The obvious implementation -
+        decrypt to a temp file then encrypt it - would leave an unencrypted copy
+        of a client document in %TEMP% for the duration, which is exactly what
+        this tool exists to avoid.
+
+        Both passwords go through the @argfile, never the command line.
+    .OUTPUTS
+        [pscustomobject] Success, ErrorCode, OutputPath, Stderr, OwnerPassword
+        ErrorCodes: OK | NOT_ENCRYPTED | BAD_PASSWORD | FILE_LOCKED | QPDF_FAIL
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $QpdfPath,
+        [Parameter(Mandatory)] [string] $InputPath,
+        [Parameter(Mandatory)] [string] $OutputPath,
+        [Parameter(Mandatory)] [System.Security.SecureString] $CurrentPassword,
+        [Parameter(Mandatory)] [System.Security.SecureString] $NewPassword,
+        [switch] $LongPathPrefix
+    )
+
+    if (-not (Test-Path -LiteralPath $InputPath)) {
+        return [pscustomobject]@{ Success=$false; ErrorCode='QPDF_FAIL'; OutputPath=$null; Stderr='Input not found'; OwnerPassword=$null }
+    }
+    if (-not (Test-PdfPreEncrypted -QpdfPath $QpdfPath -InputPath $InputPath)) {
+        return [pscustomobject]@{ Success=$false; ErrorCode='NOT_ENCRYPTED'; OutputPath=$null
+            Stderr='This PDF has no password yet - protect it instead of changing its password.'; OwnerPassword=$null }
+    }
+    try { $fs = [System.IO.File]::Open($InputPath,'Open','Read','None'); $fs.Dispose() }
+    catch {
+        return [pscustomobject]@{ Success=$false; ErrorCode='FILE_LOCKED'; OutputPath=$null
+            Stderr='Input file is in use. Close it in Acrobat or Reader and try again.'; OwnerPassword=$null }
+    }
+
+    $inArg  = if ($LongPathPrefix) { Add-LongPathPrefix $InputPath } else { $InputPath }
+    $outArg = if ($LongPathPrefix) { Add-LongPathPrefix $OutputPath } else { $OutputPath }
+
+    $ownerPlain = New-OwnerPassword
+    $owner = ConvertTo-SecureString -String $ownerPlain -AsPlainText -Force
+    $argPath = Join-Path $env:TEMP ("qpdf-rekey-{0}.args" -f ([guid]::NewGuid().Guid))
+    $curPlain = $null; $newPlain = $null
+    try {
+        $curPlain = ConvertFrom-SecureStringToPlain $CurrentPassword
+        $newPlain = ConvertFrom-SecureStringToPlain $NewPassword
+        $argText = @(
+            "--password=$curPlain"      # opens the INPUT
+            '--encrypt'                 # everything below applies to the OUTPUT
+            "--user-password=$newPlain"
+            "--owner-password=$ownerPlain"
+            '--bits=256'
+            '--'
+            $inArg
+            $outArg
+        ) -join "`n"
+        [System.IO.File]::WriteAllText($argPath, $argText, (New-Object System.Text.UTF8Encoding($false)))
+        try {
+            $acl = Get-Acl -LiteralPath $argPath
+            $acl.SetAccessRuleProtection($true, $false)
+            $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+            $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($me, 'FullControl', 'Allow')))
+            Set-Acl -LiteralPath $argPath -AclObject $acl
+        } catch { }
+
+        $pinfo = New-Object System.Diagnostics.ProcessStartInfo
+        $pinfo.FileName = $QpdfPath
+        $pinfo.Arguments = ConvertTo-NativeArgString ('@' + $argPath)
+        $pinfo.UseShellExecute = $false
+        $pinfo.RedirectStandardError = $true
+        $pinfo.RedirectStandardOutput = $true
+        $pinfo.CreateNoWindow = $true
+        $proc = [System.Diagnostics.Process]::Start($pinfo)
+        $stderr = $proc.StandardError.ReadToEnd()
+        [void]$proc.StandardOutput.ReadToEnd()
+        $proc.WaitForExit()
+        $code = $proc.ExitCode
+    } finally {
+        if (Test-Path -LiteralPath $argPath) {
+            try { [System.IO.File]::WriteAllText($argPath, (' ' * 1024)) } catch { }
+            Remove-Item -LiteralPath $argPath -Force -ErrorAction SilentlyContinue
+        }
+        Remove-Variable curPlain -ErrorAction SilentlyContinue
+        Remove-Variable newPlain -ErrorAction SilentlyContinue
+        Remove-Variable ownerPlain -ErrorAction SilentlyContinue
+        [GC]::Collect()
+    }
+
+    if (($code -ne 0 -and $code -ne 3) -or -not (Test-Path -LiteralPath $OutputPath)) {
+        Remove-Item -LiteralPath $OutputPath -Force -ErrorAction SilentlyContinue
+        $owner.Dispose()
+        $err = if ($stderr -match '(?i)invalid password') { 'BAD_PASSWORD' } else { 'QPDF_FAIL' }
+        return [pscustomobject]@{ Success=$false; ErrorCode=$err; OutputPath=$null; Stderr=$stderr; OwnerPassword=$null }
+    }
+    return [pscustomobject]@{ Success=$true; ErrorCode='OK'; OutputPath=$OutputPath; Stderr=$stderr; OwnerPassword=$owner }
+}
+
 function Remove-PdfProtection {
     <#
     .SYNOPSIS

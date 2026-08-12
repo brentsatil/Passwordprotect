@@ -442,3 +442,43 @@ unencrypted copy of a client document. That is the point of the feature, it is
 audited, and the copy carries no more risk than the original unprotected file
 they already had - but if the firm would rather it were an admin-only act, set
 `allow_password_removal` to false and use the escrow recovery path instead.
+
+---
+
+# Changing a password (2026-08-12)
+
+## 29. Password change is admin-only, in place, and escrows before it commits
+
+Entry 28 deferred this; requested straight after, so built.
+
+**Admin-only (`admin\Set-PdfPassword.ps1`), not a right-click verb.** It is
+rarely the right tool: if the unprotected original still exists - and this tool
+never deletes originals - the simpler fix is to correct the client list and
+protect it again. Re-keying is for when the original is gone. Putting a
+consequential in-place rewrite of a client file behind an admin script also
+keeps the Explorer menu at four entries.
+
+1. **One qpdf pass, no plaintext on disk.** `--password` applies to the input
+   and `--encrypt` to the output, so the file is read encrypted and written
+   encrypted in a single invocation. The obvious alternative - decrypt to a temp
+   file, then encrypt it - leaves an unprotected copy of a client document in
+   `%TEMP%` for the duration. The removed prototype did exactly that.
+2. **In place, not a second file.** Two protected copies of one document under
+   different passwords is a compliance trap: nobody can later say which one the
+   client was sent.
+3. **Escrow before commit, and roll back.** This is a STRICTER order than the
+   protect path. The record for the new password is written while the original is
+   still intact; only then is the new file swapped in. If escrow is unreachable
+   the original is restored byte-for-byte and the client's copy still opens. The
+   protect path cannot do this - there is no earlier file to fall back to - so it
+   deletes its output instead. Where the safer order is available it is used.
+4. **The OLD escrow record is kept.** It truthfully records a file that existed
+   and was sent. Deleting compliance history to tidy up would be the wrong
+   trade; recovery keys on content hash, so the stale record simply stops
+   matching anything on disk.
+5. **The current password is required**, as in entry 28. If it is unknown and
+   the tool produced the file, recover it first with `admin\Recover-File.ps1`.
+
+**Stated plainly to the operator, twice:** a copy already sent to the client
+keeps opening with the OLD password. Changing it here does not reach out and
+change theirs.

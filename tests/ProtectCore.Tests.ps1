@@ -299,3 +299,131 @@ Describe 'Invoke-UnprotectFileCore' {
         (Get-Content -LiteralPath $cfg.audit_log_path -Raw) | Should -Match 'NOT_PERMITTED'
     }
 }
+
+Describe 'Invoke-ChangePasswordCore' {
+    BeforeAll {
+        function New-SecurePw {
+            param([Parameter(Mandatory)][string] $Plain)
+            $s = New-Object System.Security.SecureString
+            foreach ($ch in $Plain.ToCharArray()) { $s.AppendChar($ch) }
+            $s.MakeReadOnly()
+            return $s
+        }
+        function New-RekeyPrompt {
+            param([Parameter(Mandatory)][string] $NewPlain)
+            return [pscustomobject]@{
+                SecurePassword = (New-SecurePw -Plain $NewPlain); PasswordSource = 'dob'
+                ClientFileRef  = 'C-TEST'; DeleteOriginal = $false; AllowOverwrite = $true
+                OpenOutlook    = $false; Cancelled = $false
+            }
+        }
+    }
+
+    It 're-keys in place: old password stops working, new one opens it' {
+        $work = Join-Path $TestDrive 'rekey'
+        New-Item -ItemType Directory -Path $work -Force | Out-Null
+        $src = Join-Path $work 'doc.pdf'
+        Copy-Item -LiteralPath $script:cleanPdf -Destination $src
+        $cfg = New-TestConfig -Dir $work
+        $p = Invoke-ProtectFileCore -Config $cfg -Path $src -PromptResult (New-TestPrompt)
+        $p.Success | Should -BeTrue
+        $target = $p.OutputPath
+
+        $r = Invoke-ChangePasswordCore -Config $cfg -Path $target `
+                -CurrentPassword (New-SecurePw -Plain '01031970') -PromptResult (New-RekeyPrompt -NewPlain '25121988')
+        $r.Success | Should -BeTrue
+        $r.OutputPath | Should -Be $target          # in place
+
+        & $script:qpdf --password=25121988 --decrypt $target (Join-Path $work 'new.pdf') 2>&1 | Out-Null
+        ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq 3) | Should -BeTrue
+        (Join-Path $work 'new.pdf') | Should -Exist
+
+        & $script:qpdf --password=01031970 --decrypt $target (Join-Path $work 'old.pdf') 2>&1 | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        (Join-Path $work 'old.pdf') | Should -Not -Exist
+    }
+
+    It 'escrows the NEW password so it is recoverable, keeping the old record' {
+        $work = Join-Path $TestDrive 'rekey-escrow'
+        New-Item -ItemType Directory -Path $work -Force | Out-Null
+        $src = Join-Path $work 'doc.pdf'
+        Copy-Item -LiteralPath $script:cleanPdf -Destination $src
+        $cfg = New-TestConfig -Dir $work
+        $p = Invoke-ProtectFileCore -Config $cfg -Path $src -PromptResult (New-TestPrompt)
+
+        $r = Invoke-ChangePasswordCore -Config $cfg -Path $p.OutputPath `
+                -CurrentPassword (New-SecurePw -Plain '01031970') -PromptResult (New-RekeyPrompt -NewPlain '25121988')
+        $r.Success | Should -BeTrue
+
+        # Two records now: the original send, and the re-keyed file.
+        @(Get-ChildItem -Path $cfg.escrow_dir -Filter '*.escrow.json' -Recurse).Count | Should -Be 2
+
+        # The record for the file as it stands must hold the NEW password.
+        $sha = (Get-FileHash -LiteralPath $p.OutputPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $sidecar = Get-ChildItem -Path $cfg.escrow_dir -Filter "$sha.escrow.json" -Recurse
+        @($sidecar).Count | Should -Be 1
+
+        $rows = @(Get-Content -LiteralPath $cfg.audit_log_path | Where-Object { $_ -match '"op":"change_password"' })
+        $rows.Count | Should -Be 1
+        $rows[0] | Should -Match '"outcome":"ok"'
+        $rows[0] | Should -Match '"src_sha256"'      # old and new hashes both recorded
+    }
+
+    It 'leaves the file byte-identical when the current password is wrong' {
+        $work = Join-Path $TestDrive 'rekey-badpw'
+        New-Item -ItemType Directory -Path $work -Force | Out-Null
+        $src = Join-Path $work 'doc.pdf'
+        Copy-Item -LiteralPath $script:cleanPdf -Destination $src
+        $cfg = New-TestConfig -Dir $work
+        $p = Invoke-ProtectFileCore -Config $cfg -Path $src -PromptResult (New-TestPrompt)
+        $before = (Get-FileHash -LiteralPath $p.OutputPath -Algorithm SHA256).Hash
+
+        $r = Invoke-ChangePasswordCore -Config $cfg -Path $p.OutputPath `
+                -CurrentPassword (New-SecurePw -Plain '31129999') -PromptResult (New-RekeyPrompt -NewPlain '25121988')
+        $r.Success | Should -BeFalse
+        $r.ErrorCode | Should -Be 'BAD_PASSWORD'
+        (Get-FileHash -LiteralPath $p.OutputPath -Algorithm SHA256).Hash | Should -Be $before
+        @(Get-ChildItem -Path $work -Filter '*.tmp').Count | Should -Be 0
+    }
+
+    It 'restores the original untouched when escrow is unreachable' {
+        # The strict guarantee: a file must never end up with a password that has
+        # no recovery record. Here the safer order is possible (unlike a fresh
+        # protect), so the original comes back byte-for-byte.
+        $work = Join-Path $TestDrive 'rekey-noescrow'
+        New-Item -ItemType Directory -Path $work -Force | Out-Null
+        $src = Join-Path $work 'doc.pdf'
+        Copy-Item -LiteralPath $script:cleanPdf -Destination $src
+        $cfg = New-TestConfig -Dir $work
+        $p = Invoke-ProtectFileCore -Config $cfg -Path $src -PromptResult (New-TestPrompt)
+        $before = (Get-FileHash -LiteralPath $p.OutputPath -Algorithm SHA256).Hash
+
+        # A FILE where the escrow directory should be - no directory can be made.
+        Remove-Item -LiteralPath $cfg.escrow_dir -Recurse -Force
+        Set-Content -LiteralPath $cfg.escrow_dir -Value 'not a directory'
+
+        $r = Invoke-ChangePasswordCore -Config $cfg -Path $p.OutputPath `
+                -CurrentPassword (New-SecurePw -Plain '01031970') -PromptResult (New-RekeyPrompt -NewPlain '25121988')
+
+        $r.Success | Should -BeFalse
+        $r.ErrorCode | Should -Be 'ESCROW_OFFLINE'
+        (Get-FileHash -LiteralPath $p.OutputPath -Algorithm SHA256).Hash | Should -Be $before
+        # Still opens with the ORIGINAL password - the client is unaffected.
+        & $script:qpdf --password=01031970 --decrypt $p.OutputPath (Join-Path $work 'still.pdf') 2>&1 | Out-Null
+        ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq 3) | Should -BeTrue
+        @(Get-ChildItem -Path $work -Filter '*.tmp').Count | Should -Be 0
+    }
+
+    It 'refuses a PDF that has no password yet' {
+        $work = Join-Path $TestDrive 'rekey-plain'
+        New-Item -ItemType Directory -Path $work -Force | Out-Null
+        $src = Join-Path $work 'doc.pdf'
+        Copy-Item -LiteralPath $script:cleanPdf -Destination $src
+        $cfg = New-TestConfig -Dir $work
+
+        $r = Invoke-ChangePasswordCore -Config $cfg -Path $src `
+                -CurrentPassword (New-SecurePw -Plain '01031970') -PromptResult (New-RekeyPrompt -NewPlain '25121988')
+        $r.Success | Should -BeFalse
+        $r.ErrorCode | Should -Be 'NOT_ENCRYPTED'
+    }
+}

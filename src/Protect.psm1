@@ -242,4 +242,130 @@ function Invoke-UnprotectFileCore {
     }
 }
 
-Export-ModuleMember -Function Invoke-ProtectFileCore, Invoke-UnprotectFileCore
+function Invoke-ChangePasswordCore {
+    <#
+    .SYNOPSIS
+        Re-protect a protected PDF in place under a new password, writing a NEW
+        escrow record before the change is committed.
+    .DESCRIPTION
+        In place on purpose. Producing a second protected copy under a different
+        password leaves two files that look identical and open differently -
+        nobody can later say which one the client was sent.
+
+        Fail-closed, and in a STRICTER order than the protect path. The escrow
+        record for the new password is written while the original is still
+        intact; only then is the new file committed. If escrow is unreachable
+        the original is restored byte-for-byte and nothing changed. The protect
+        path cannot do this (there is no prior file to fall back to) and so
+        deletes its output instead; here the safer order is available, so it is
+        used.
+
+        The OLD escrow record is deliberately left in place. It is a truthful
+        record of a file that existed and was sent, and destroying compliance
+        history to tidy up would be the wrong trade. Recovery keys on content
+        hash, so the old record simply stops matching anything on disk.
+    .OUTPUTS
+        [pscustomobject] Success, ExitCode, ErrorCode, OutputPath, Message
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] $Config,
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [System.Security.SecureString] $CurrentPassword,
+        [Parameter(Mandatory)] $PromptResult   # SecurePassword = the NEW password
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        Write-AuditEvent -Config $Config -Fields @{ op='change_password'; outcome='fail'; error_code='INPUT_NOT_FOUND'; src_path=$Path }
+        return [pscustomobject]@{ Success=$false; ExitCode=3; ErrorCode='INPUT_NOT_FOUND'; OutputPath=$null; Message="File not found: $Path" }
+    }
+    if ([IO.Path]::GetExtension($Path).ToLowerInvariant() -ne '.pdf') {
+        Write-AuditEvent -Config $Config -Fields @{ op='change_password'; outcome='fail'; error_code='PDF_ONLY'; src_path=$Path }
+        return [pscustomobject]@{ Success=$false; ExitCode=4; ErrorCode='PDF_ONLY'; OutputPath=$null; Message='Only PDF files are supported.' }
+    }
+
+    $oldSha  = Get-FileSha256 -Path $Path
+    $stamp   = [System.Guid]::NewGuid().ToString('N').Substring(0,8)
+    $newTmp  = "$Path.$stamp.rekey.tmp"
+    $backup  = "$Path.$stamp.backup.tmp"
+    $startTs = Get-Date
+
+    $enc = Set-PdfPassword `
+        -QpdfPath $Config.qpdf_path `
+        -InputPath $Path `
+        -OutputPath $newTmp `
+        -CurrentPassword $CurrentPassword `
+        -NewPassword $PromptResult.SecurePassword `
+        -LongPathPrefix:$Config.long_path_prefix
+
+    if (-not $enc.Success) {
+        Write-AuditEvent -Config $Config -Fields @{
+            op='change_password'; outcome='fail'; error_code=$enc.ErrorCode; src_path=$Path
+            src_sha256=$oldSha; client_file_ref=$PromptResult.ClientFileRef
+        }
+        $message = switch ($enc.ErrorCode) {
+            'BAD_PASSWORD'  { 'The CURRENT password is wrong, so the file was not changed. Check it and try again.' }
+            'NOT_ENCRYPTED' { 'This PDF has no password yet - protect it instead of changing its password.' }
+            'FILE_LOCKED'   { 'The PDF is open in another program. Close it and try again.' }
+            default         { "Could not change the password ($($enc.ErrorCode)): $($enc.Stderr)" }
+        }
+        return [pscustomobject]@{ Success=$false; ExitCode=4; ErrorCode=$enc.ErrorCode; OutputPath=$null; Message=$message }
+    }
+
+    # Commit sequence: back up, swap in, escrow, and roll back if escrow fails.
+    $committed = $false
+    try {
+        Copy-Item -LiteralPath $Path -Destination $backup -Force
+        Move-Item -LiteralPath $newTmp -Destination $Path -Force
+        $committed = $true
+
+        $escrow = Write-EscrowSidecar `
+            -Config $Config `
+            -SourcePath $Path `
+            -OutputPath $Path `
+            -Cipher 'pdf-aes256' `
+            -PasswordSource $PromptResult.PasswordSource `
+            -ClientFileRef $PromptResult.ClientFileRef `
+            -UserPassword $PromptResult.SecurePassword `
+            -OwnerPassword $enc.OwnerPassword
+    } catch {
+        if ($committed -and (Test-Path -LiteralPath $backup)) {
+            # Put the original back exactly as it was: it still matches its own
+            # escrow record, so the client can still open what they were sent.
+            Move-Item -LiteralPath $backup -Destination $Path -Force
+        }
+        Remove-Item -LiteralPath $newTmp -Force -ErrorAction SilentlyContinue
+        if ($enc.OwnerPassword) { $enc.OwnerPassword.Dispose() }
+        Write-AuditEvent -Config $Config -Fields @{
+            op='change_password'; outcome='fail'; error_code='ESCROW_OFFLINE'; src_path=$Path; src_sha256=$oldSha
+        }
+        return [pscustomobject]@{
+            Success=$false; ExitCode=5; ErrorCode='ESCROW_OFFLINE'; OutputPath=$null
+            Message=("The new password could not be escrowed, so the file was left exactly as it was. " +
+                     "Nothing changed. $($_.Exception.Message)")
+        }
+    } finally {
+        Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $newTmp -Force -ErrorAction SilentlyContinue
+    }
+
+    if ($enc.OwnerPassword) { $enc.OwnerPassword.Dispose() }
+
+    Write-AuditEvent -Config $Config -Fields @{
+        op='change_password'; outcome='ok'; src_path=$Path; dst_path=$Path
+        src_sha256=$oldSha; output_sha256=$escrow.OutputSha256
+        cipher='pdf-aes256'; password_source=$PromptResult.PasswordSource
+        client_file_ref=$PromptResult.ClientFileRef
+        escrow_written=$true; escrow_fp=$escrow.Fingerprint
+        duration_ms=[int]((Get-Date) - $startTs).TotalMilliseconds
+    }
+
+    return [pscustomobject]@{
+        Success=$true; ExitCode=0; ErrorCode='OK'; OutputPath=$Path
+        Message=("Password changed on:" + [Environment]::NewLine + $Path + [Environment]::NewLine + [Environment]::NewLine +
+                 "The new password is escrowed and recoverable. Any copy already sent to the client still " +
+                 "opens with the OLD password - resend this file if they need the new one.")
+    }
+}
+
+Export-ModuleMember -Function Invoke-ProtectFileCore, Invoke-UnprotectFileCore, Invoke-ChangePasswordCore

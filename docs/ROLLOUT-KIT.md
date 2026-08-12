@@ -141,7 +141,18 @@ Import-Module .\src\Config.psm1
 Without this the verb still works, but sits under *Show more options*. See
 `docs\ADMIN-SETUP.md`.
 
-### 1h. The ongoing rhythm
+### 1h. Rare: re-key a protected PDF you no longer have the original of
+
+```powershell
+# Prompts for the CURRENT password; new password = that client's DOB.
+.\admin\Set-PdfPassword.ps1 -Path '<the protected pdf>' -ClientRef 'C-00101'
+```
+
+Only when the unprotected original is gone. If you still have it, correct the
+client list and protect it again instead - simpler, and it leaves no stale copy.
+The client's existing copy keeps opening with the OLD password.
+
+### 1i. The ongoing rhythm
 
 ```powershell
 # Weekly - refresh the client list from the master spreadsheet
