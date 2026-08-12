@@ -111,6 +111,17 @@ Describe 'New-BatchRowList' {
         @($rows).Count | Should -Be 1
         $rows -is [array] | Should -BeTrue
     }
+    It 'must be assigned before wrapping - @(call) collapses to one element' {
+        # The `,$rows` return that protects the single-path case above makes this
+        # function emit ONE object, so the inline form silently yields a
+        # 1-element array wrapping the real one. This bit the user-journey
+        # simulation; pin it so the calling convention is documented in a test
+        # rather than rediscovered.
+        $paths = @('C:\x\a.pdf','C:\x\b.pdf','C:\x\c.pdf')
+        $assigned = New-BatchRowList -Paths $paths -Config $script:cfg -ClientList $script:cl
+        @($assigned).Count | Should -Be 3
+        (@(New-BatchRowList -Paths $paths -Config $script:cfg -ClientList $script:cl)).Count | Should -Be 1
+    }
 }
 
 Describe 'Set-BatchRowClient' {

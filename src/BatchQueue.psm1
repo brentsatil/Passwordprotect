@@ -87,6 +87,18 @@ function New-BatchRow {
 }
 
 function New-BatchRowList {
+    <#
+    .SYNOPSIS
+        One row per path, in order.
+    .NOTES
+        Returns `,$rows` so a single-path call cannot unroll to a scalar. That
+        means this emits ONE object (the array), so CALL IT LIKE THIS:
+            $rows = New-BatchRowList ... ; $rows = @($rows)
+        and NOT like this:
+            $rows = @(New-BatchRowList ...)     # Count is 1, not N
+        The inline form collects the single emitted object into a 1-element
+        array wrapping the real one.
+    #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [string[]] $Paths,

@@ -269,8 +269,13 @@ Import-Module (Join-Path $ToolRoot 'src\Protect.psm1')    -Force -DisableNameChe
 $clientList = Get-ClientList -Config $cfg
 Want (-not $clientList.HardFail) 'the client list loaded'
 
-$rows = @(New-BatchRowList -Paths $pdfs -Config $cfg -ClientList $clientList)
-Want ($rows.Count -eq 3) 'the window shows one row per PDF (3)'
+# Assign FIRST, then wrap. New-BatchRowList returns ,$rows so a single-path
+# call cannot unroll to a scalar, which means it emits ONE object (the array).
+# Inlining as @(New-BatchRowList ...) collects that one object and yields a
+# 1-element array containing the array - Count 1, not 3.
+$rowList = New-BatchRowList -Paths $pdfs -Config $cfg -ClientList $clientList
+$rows = @($rowList)
+Want ($rows.Count -eq 3) "the window shows one row per PDF (got $($rows.Count))"
 
 Write-Host ''
 Write-Host ('      {0,-12} {1,-32} {2,-24} {3}' -f 'STATUS', 'FILE', 'CLIENT', 'WILL CREATE')
@@ -280,9 +285,9 @@ foreach ($row in $rows) {
 Write-Host ''
 
 $auto = @($rows | Where-Object { $_.AutoMatched })
-Want ($auto.Count -eq 2) '2 rows auto-matched their client from the file name'
+Want ($auto.Count -eq 2) "2 rows auto-matched their client from the file name (got $($auto.Count))"
 $needs = @($rows | Where-Object { $_.Status -eq 'NeedsClient' })
-Want ($needs.Count -eq 1) '1 row says "Needs client" (nothing in its name matched)'
+Want ($needs.Count -eq 1) "1 row says `"Needs client`" (got $($needs.Count))"
 Want (-not (Test-BatchReady -Rows $rows)) '"Protect all" is DISABLED while a row still needs a client'
 Want (@($rows | Where-Object { $_.PreviewName -like '*_protected.pdf' }).Count -eq 3) 'every row previews the file it will create'
 
