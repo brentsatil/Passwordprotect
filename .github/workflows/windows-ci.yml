@@ -273,6 +273,16 @@ jobs:
 
           # Full recovery loop: reopen the setup-generated PFX (with its password)
           # and recover the escrowed password - it must equal the DOB.
+          #
+          # Keep the paths we still need under names Recover-File.ps1 cannot
+          # touch. Dot-sourcing a script DECLARES ITS param() BLOCK IN THIS
+          # SCOPE, so `. Recover-File.ps1` silently blanks $EscrowDir,
+          # $OutputPath, $SourceName, $ClientRef and $Sha256 here - and
+          # PowerShell variables are case-insensitive, so $escrowDir goes with
+          # it. That cost a red build: everything before this line saw the real
+          # path, everything after saw an empty string.
+          $escrowRoot = $escrowDir
+          $settingsFile = $userSettings
           . (Join-Path $app 'admin\Recover-File.ps1')   # Unprotect-EscrowEntry (guarded main)
           $recCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfx, (ConvertTo-SecureString 'ci-pfx-pw-1' -AsPlainText -Force), [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable)
           try { $recovered = Unprotect-EscrowEntry -Entry $entry -Certificate $recCert -Which user } finally { $recCert.Dispose() }
@@ -283,18 +293,25 @@ jobs:
           # file entirely (keys never arrive, silently) while -Force rewrote it
           # from the template (hand-edited values lost). Prove the top-up adds
           # what is missing and touches nothing else.
-          $cfgObj = Get-Content -LiteralPath $userSettings -Raw | ConvertFrom-Json
+          # Fail loudly if the scope leak above ever returns, instead of letting
+          # an empty path reach setup and surface as a confusing "missing
+          # parameter" from a command that plainly passes it.
+          foreach ($v in @(@{n='escrowRoot';v=$escrowRoot}, @{n='settingsFile';v=$settingsFile}, @{n='clientOut';v=$clientOut})) {
+            if ([string]::IsNullOrWhiteSpace($v.v)) { throw "$($v.n) is empty - a dot-sourced param block has clobbered it" }
+          }
+
+          $cfgObj = Get-Content -LiteralPath $settingsFile -Raw | ConvertFrom-Json
           $kept = [ordered]@{}
           foreach ($p in $cfgObj.PSObject.Properties) {
             if ($p.Name -in 'verify_output','allow_delete_original') { continue }   # simulate an older config
             $kept[$p.Name] = $p.Value
           }
           $kept['audit_log_retention_days'] = 3000        # a deliberate local edit that must survive
-          [System.IO.File]::WriteAllText($userSettings, [string](ConvertTo-Json -InputObject $kept -Depth 6), [System.Text.UTF8Encoding]::new($false))
+          [System.IO.File]::WriteAllText($settingsFile, [string](ConvertTo-Json -InputObject $kept -Depth 6), [System.Text.UTF8Encoding]::new($false))
 
           $topUpCmd = "`$env:ProgramData='$pd'; `$env:LOCALAPPDATA='$la'; " +
                       "& '$app\setup.ps1' -Mode Launcher -NonInteractive " +
-                      "-ClientListPath '$clientOut' -EscrowDir '$escrowDir' -SkipClientPublish; exit `$LASTEXITCODE"
+                      "-ClientListPath '$clientOut' -EscrowDir '$escrowRoot' -SkipClientPublish; exit `$LASTEXITCODE"
           $ErrorActionPreference = 'Continue'
           $topUpOut = & $psExe -NoProfile -ExecutionPolicy Bypass -Command $topUpCmd 2>&1 | Out-String
           $topUpRc = $LASTEXITCODE

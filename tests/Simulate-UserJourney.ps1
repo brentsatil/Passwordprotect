@@ -398,6 +398,11 @@ Want ($auditLeak.Count -eq 0) 'no client DOB appears in the audit log either (it
 # --- Scene 9 ---------------------------------------------------------------
 Scene 'Someone forgets a password - the admin recovers it from the USB'
 
+# NOTE: dot-sourcing DECLARES the script's param() block in THIS scope, so
+# this line blanks $EscrowDir, $OutputPath, $SourceName, $ClientRef and
+# $Sha256 (case-insensitively). Nothing below relies on those names - keep
+# it that way, or capture the value under another name first. The same trap
+# turned windows-ci #75 red.
 . (Join-Path $ToolRoot 'admin\Recover-File.ps1')       # guarded: defines Unprotect-EscrowEntry only
 $target = $rows[0]
 $targetSha = (Get-FileHash -LiteralPath $target.OutputPath -Algorithm SHA256).Hash.ToLowerInvariant()
